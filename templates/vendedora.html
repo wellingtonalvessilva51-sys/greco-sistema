@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Minhas Vendas</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;min-height:100vh;max-width:430px;margin:0 auto;}
+.header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:20px 16px;}
+.header-top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+.nome{font-size:20px;font-weight:700;color:#c9a84c;}
+.logout{font-size:18px;cursor:pointer;text-decoration:none;}
+.meta-box{background:#222018;border:1px solid #2e2b24;border-radius:12px;padding:14px;}
+.meta-label{font-size:11px;color:#6b6455;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;}
+.meta-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.meta-pct{font-size:16px;font-weight:700;color:#c9a84c;}
+.meta-pct.over{color:#4caf7d;}
+.meta-pct.low{color:#e05c5c;}
+.progress{height:6px;background:#2e2b24;border-radius:10px;overflow:hidden;}
+.progress-fill{height:100%;background:linear-gradient(90deg,#c9a84c,#e8c97a);border-radius:10px;}
+.progress-fill.over{background:linear-gradient(90deg,#4caf7d,#6ee0a0);}
+.progress-fill.low{background:linear-gradient(90deg,#e05c5c,#f08080);}
+.nav{display:flex;background:#1a1814;border-bottom:1px solid #2e2b24;}
+.nav-btn{flex:1;padding:12px;text-align:center;font-size:11px;font-weight:600;color:#6b6455;cursor:pointer;border-bottom:2px solid transparent;border:none;background:transparent;text-transform:uppercase;letter-spacing:1px;}
+.nav-btn.active{color:#c9a84c;border-bottom:2px solid #c9a84c;}
+.content{padding:20px 16px;display:none;}
+.content.active{display:block;}
+.grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:20px;}
+.stat-card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;padding:14px;text-align:center;}
+.stat-val{font-size:20px;font-weight:700;color:#f0ece3;}
+.stat-label{font-size:10px;color:#6b6455;margin-top:4px;text-transform:uppercase;letter-spacing:1px;}
+.rank-item{display:flex;align-items:center;gap:10px;padding:12px;background:#1a1814;border:1px solid #2e2b24;border-radius:10px;margin-bottom:8px;}
+.rank-item.eu{border-color:#c9a84c;background:rgba(201,168,76,.07);}
+.rank-pos{font-size:16px;font-weight:700;color:#6b6455;width:24px;text-align:center;}
+.rank-pos.eu{color:#c9a84c;}
+.rank-nome{flex:1;font-size:13px;}
+.rank-nome.eu{font-weight:700;color:#f0ece3;}
+.rank-fat{font-size:13px;color:#6b6455;}
+.rank-fat.eu{color:#c9a84c;font-weight:600;}
+</style>
+</head>
+<body>
+<div class="header">
+  <div class="header-top">
+    <div>
+      <div style="font-size:12px;color:#6b6455;">Bem-vinda,</div>
+      <div class="nome">{{ user.nome }}</div>
+    </div>
+    <a href="/logout" class="logout">🚪</a>
+  </div>
+  <div class="meta-box">
+    <div class="meta-label">Meta do mês</div>
+    <div class="meta-row">
+      <span style="font-size:13px;color:#a09880;">{{ fat_mes }} / {{ meta }}</span>
+      <span class="meta-pct {% if pct_meta_num >= 100 %}over{% elif pct_meta_num < 70 %}low{% endif %}">
+        {{ pct_meta_num }}% {% if pct_meta_num >= 100 %}✓{% endif %}
+      </span>
+    </div>
+    <div class="progress">
+      <div class="progress-fill {% if pct_meta_num >= 100 %}over{% elif pct_meta_num < 70 %}low{% endif %}" style="width:{{ pct_meta }}%"></div>
+    </div>
+  </div>
+</div>
+
+<div class="nav">
+  <button class="nav-btn active" onclick="mudar('hoje',this)">Hoje</button>
+  <button class="nav-btn" onclick="mudar('mes',this)">Mês</button>
+  <button class="nav-btn" onclick="mudar('ranking',this)">Ranking</button>
+</div>
+
+<div class="content active" id="aba-hoje">
+  <div class="grid-3">
+    <div class="stat-card"><div class="stat-val">{{ fat_hoje }}</div><div class="stat-label">Faturado</div></div>
+    <div class="stat-card"><div class="stat-val">{{ pecas_mes }}</div><div class="stat-label">Peças/mês</div></div>
+    <div class="stat-card"><div class="stat-val">{{ comissao }}</div><div class="stat-label">Comissão</div></div>
+  </div>
+  <p style="text-align:center;color:#6b6455;font-size:13px;padding:20px 0;">Continue assim! 💪</p>
+</div>
+
+<div class="content" id="aba-mes">
+  <div class="grid-3">
+    <div class="stat-card"><div class="stat-val">{{ fat_mes }}</div><div class="stat-label">Faturado</div></div>
+    <div class="stat-card"><div class="stat-val">{{ pecas_mes }}</div><div class="stat-label">Peças</div></div>
+    <div class="stat-card"><div class="stat-val">{{ comissao }}</div><div class="stat-label">Comissão</div></div>
+  </div>
+  <div class="stat-card" style="text-align:center;">
+    <div class="stat-val">{{ pct_meta_num }}%</div>
+    <div class="stat-label">da Meta Atingido</div>
+  </div>
+</div>
+
+<div class="content" id="aba-ranking">
+  {% for nome, fat, eu in ranking %}
+  <div class="rank-item {% if eu %}eu{% endif %}">
+    <div class="rank-pos {% if eu %}eu{% endif %}">{{ loop.index }}</div>
+    <div class="rank-nome {% if eu %}eu{% endif %}">{{ nome }}{% if eu %} 👈{% endif %}</div>
+    <div class="rank-fat {% if eu %}eu{% endif %}">{{ fat }}</div>
+  </div>
+  {% else %}
+  <p style="text-align:center;color:#6b6455;font-size:13px;padding:40px 0;">Sem dados de ranking ainda.</p>
+  {% endfor %}
+</div>
+
+<script>
+function mudar(id, el) {
+  document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('aba-' + id).classList.add('active');
+  el.classList.add('active');
+}
+</script>
+</body>
+</html>
