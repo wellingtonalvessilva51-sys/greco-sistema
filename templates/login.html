@@ -1,1 +1,36 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema Greco</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+.card{background:#1a1814;border:1px solid #2e2b24;border-radius:16px;padding:40px;width:100%;max-width:380px;}
+h1{font-size:24px;color:#c9a84c;margin-bottom:8px;text-align:center;}
+p{color:#6b6455;text-align:center;margin-bottom:32px;font-size:14px;}
+label{display:block;font-size:12px;color:#6b6455;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;}
+input{width:100%;background:#222018;border:1px solid #2e2b24;border-radius:8px;padding:12px;color:#f0ece3;font-size:15px;margin-bottom:16px;}
+input:focus{outline:none;border-color:#c9a84c;}
+button{width:100%;background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:14px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;}
+button:hover{background:#e8c97a;}
+.erro{background:rgba(224,92,92,.15);border:1px solid #e05c5c;color:#e05c5c;border-radius:8px;padding:12px;margin-bottom:16px;font-size:14px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>🏪 Sistema Greco</h1>
+  <p>Faça login para continuar</p>
+  {% if erro %}<div class="erro">{{ erro }}</div>{% endif %}
+  <form method="post" action="/login">
+    <label>E-mail</label>
+    <input type="email" name="email" required autofocus>
+    <label>Senha</label>
+    <input type="password" name="senha" required>
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+</body>
+</html>
 
