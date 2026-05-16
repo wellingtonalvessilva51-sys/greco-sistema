@@ -97,6 +97,14 @@ def _processar_pedido(pedido: dict, db: Session) -> str:
         return "ignorado"
     vendedor = pedido.get("vendedor") or {}
     vendedora_nome = vendedor.get("nome", "").strip() or "Sem vendedor"
+    
+    # Busca loja_id pelo nome da vendedora
+    from models import Vendedora
+    vendedora_db = db.query(Vendedora).filter(
+        Vendedora.bling_vendedor_nome == vendedora_nome
+    ).first()
+    loja_id = vendedora_db.loja_id if vendedora_db else None
+
     data_str = pedido.get("data", "")
     try:
         data_venda = datetime.strptime(data_str, "%Y-%m-%d")
@@ -108,12 +116,15 @@ def _processar_pedido(pedido: dict, db: Session) -> str:
     num_itens = sum(int(i.get("quantidade", 0)) for i in (pedido.get("itens") or []))
     situacao_obj = pedido.get("situacao") or {}
     situacao = situacao_obj.get("nome", "") if isinstance(situacao_obj, dict) else str(situacao_obj)
+    
     venda_db = db.query(Venda).filter(Venda.bling_pedido_id == bling_id).first()
     if venda_db:
         venda_db.valor_total = valor_total
         venda_db.situacao = situacao
+        venda_db.loja_id = loja_id
         venda_db.sincronizado_em = datetime.utcnow()
         return "atualizado"
-    db.add(Venda(bling_pedido_id=bling_id, vendedora_nome=vendedora_nome, cliente_nome=cliente_nome,
-                 valor_total=valor_total, num_itens=num_itens, data_venda=data_venda, situacao=situacao))
+    db.add(Venda(bling_pedido_id=bling_id, vendedora_nome=vendedora_nome, loja_id=loja_id,
+                 cliente_nome=cliente_nome, valor_total=valor_total, num_itens=num_itens,
+                 data_venda=data_venda, situacao=situacao))
     return "novo"
