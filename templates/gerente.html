@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gerente - Sistema Greco</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;}
+.header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+.header h1{color:#c9a84c;font-size:18px;}
+.header-right{display:flex;gap:12px;align-items:center;}
+.btn{background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;}
+.btn-outline{background:transparent;border:1px solid #2e2b24;color:#f0ece3;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.btn-red{background:#e05c5c;color:#fff;}
+.container{max-width:1200px;margin:0 auto;padding:24px;}
+.grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
+.card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;padding:20px;}
+.stat-val{font-size:28px;font-weight:700;color:#c9a84c;margin-bottom:4px;}
+.stat-label{font-size:12px;color:#6b6455;text-transform:uppercase;letter-spacing:1px;}
+.section-title{font-size:14px;font-weight:700;color:#c9a84c;margin-bottom:16px;border-bottom:1px solid #2e2b24;padding-bottom:8px;}
+.rank-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #2e2b24;}
+.rank-item:last-child{border:none;}
+.rank-pos{color:#6b6455;font-size:13px;width:24px;}
+.rank-nome{flex:1;font-size:14px;padding:0 12px;}
+.rank-val{font-size:14px;color:#c9a84c;font-weight:600;}
+.progress-bar{height:6px;background:#2e2b24;border-radius:10px;overflow:hidden;margin-top:8px;}
+.progress-fill{height:100%;background:linear-gradient(90deg,#c9a84c,#e8c97a);border-radius:10px;}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px;}
+label{display:block;font-size:11px;color:#6b6455;margin-bottom:4px;text-transform:uppercase;letter-spacing:1px;}
+input,select{width:100%;background:#222018;border:1px solid #2e2b24;border-radius:8px;padding:10px;color:#f0ece3;font-size:14px;}
+input:focus,select:focus{outline:none;border-color:#c9a84c;}
+.tabs{display:flex;gap:4px;margin-bottom:20px;background:#1a1814;border:1px solid #2e2b24;border-radius:10px;padding:4px;}
+.tab{flex:1;padding:8px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;border-radius:8px;color:#6b6455;border:none;background:transparent;}
+.tab.active{background:#c9a84c;color:#0f0e0c;}
+.tab-content{display:none;}
+.tab-content.active{display:block;}
+.loja-card{background:#222018;border:1px solid #2e2b24;border-radius:10px;padding:16px;margin-bottom:12px;}
+.loja-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+.loja-nome{font-size:15px;font-weight:700;}
+.loja-meta{font-size:13px;color:#6b6455;}
+.vendedora-item{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid #2e2b24;}
+.vendedora-item:last-child{border:none;}
+.tag{font-size:11px;background:#2e2b24;color:#6b6455;border-radius:6px;padding:2px 8px;}
+a{color:#c9a84c;text-decoration:none;}
+.alert{background:rgba(201,168,76,.1);border:1px solid #c9a84c;border-radius:8px;padding:12px 16px;margin-bottom:16px;font-size:13px;}
+@media(max-width:768px){.grid-4{grid-template-columns:1fr 1fr;}.grid-2{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🏪 Sistema Greco</h1>
+  <div class="header-right">
+    <span style="color:#6b6455;font-size:13px;">Olá, {{ user.nome }}</span>
+    <a href="/auth/bling" class="btn btn-outline btn-sm">🔗 Conectar Bling</a>
+    <button onclick="sincronizar()" class="btn btn-sm" id="btnSync">🔄 Sincronizar</button>
+    <a href="/logout" class="btn btn-outline btn-sm">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <!-- Stats -->
+  <div class="grid-4">
+    <div class="card">
+      <div class="stat-val">{{ total_mes }}</div>
+      <div class="stat-label">Faturamento do Mês</div>
+    </div>
+    <div class="card">
+      <div class="stat-val">{{ total_hoje }}</div>
+      <div class="stat-label">Faturamento Hoje</div>
+    </div>
+    <div class="card">
+      <div class="stat-val">{{ num_vendedoras }}</div>
+      <div class="stat-label">Vendedoras Ativas</div>
+    </div>
+    <div class="card">
+      <div class="stat-val">{{ num_lojas }}</div>
+      <div class="stat-label">Lojas</div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <!-- Ranking -->
+    <div class="card">
+      <div class="section-title">🏆 Ranking do Mês</div>
+      {% for nome, fat in ranking %}
+      <div class="rank-item">
+        <div class="rank-pos">{{ loop.index }}</div>
+        <div class="rank-nome">{{ nome }}</div>
+        <div class="rank-val">{{ fat }}</div>
+      </div>
+      {% else %}
+      <p style="color:#6b6455;font-size:13px;">Nenhuma venda sincronizada ainda.</p>
+      {% endfor %}
+    </div>
+
+    <!-- Lojas -->
+    <div class="card">
+      <div class="section-title">🏪 Metas por Loja</div>
+      {% for loja in lojas_stats %}
+      <div style="margin-bottom:16px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-size:14px;font-weight:600;">{{ loja.nome }}</span>
+          <span style="font-size:13px;color:#c9a84c;">{{ loja.pct_num }}%</span>
+        </div>
+        <div style="font-size:12px;color:#6b6455;margin:4px 0;">{{ loja.faturamento }} / {{ loja.meta }}</div>
+        <div class="progress-bar"><div class="progress-fill" style="width:{{ loja.pct }}%"></div></div>
+      </div>
+      {% else %}
+      <p style="color:#6b6455;font-size:13px;">Nenhuma loja cadastrada.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Gestão -->
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="trocarAba('lojas', this)">🏪 Lojas</button>
+      <button class="tab" onclick="trocarAba('vendedoras', this)">👥 Vendedoras</button>
+      <button class="tab" onclick="trocarAba('nova-loja', this)">+ Nova Loja</button>
+      <button class="tab" onclick="trocarAba('nova-vendedora', this)">+ Nova Vendedora</button>
+    </div>
+
+    <!-- Lojas -->
+    <div class="tab-content active" id="tab-lojas">
+      {% for loja in lojas %}
+      <div class="loja-card">
+        <div class="loja-header">
+          <div class="loja-nome">{{ loja.nome }}</div>
+          <div class="loja-meta">Meta: R$ {{ "%.2f"|format(loja.meta_mensal) }}</div>
+        </div>
+        <form method="post" action="/api/lojas/{{ loja.id }}/meta" style="display:flex;gap:8px;">
+          <input type="number" name="meta" value="{{ loja.meta_mensal }}" step="100" style="flex:1;">
+          <button type="submit" class="btn btn-sm">Salvar Meta</button>
+        </form>
+      </div>
+      {% else %}
+      <p style="color:#6b6455;font-size:13px;">Nenhuma loja cadastrada ainda.</p>
+      {% endfor %}
+    </div>
+
+    <!-- Vendedoras -->
+    <div class="tab-content" id="tab-vendedoras">
+      {% for v in vendedoras %}
+      <div class="vendedora-item">
+        <div>
+          <div style="font-size:14px;font-weight:600;">{{ v.nome }}</div>
+          <div style="font-size:12px;color:#6b6455;">{{ v.email }} {% if v.bling_vendedor_nome %}· Bling: {{ v.bling_vendedor_nome }}{% endif %}</div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;">
+          <span class="tag">Meta: R$ {{ "%.0f"|format(v.meta_mensal) }}</span>
+          <span class="tag">{{ v.percentual_comissao }}%</span>
+          <button onclick="editarMeta({{ v.id }}, {{ v.meta_mensal }}, {{ v.percentual_comissao }})" class="btn btn-outline btn-sm">Editar</button>
+        </div>
+      </div>
+      {% else %}
+      <p style="color:#6b6455;font-size:13px;">Nenhuma vendedora cadastrada ainda.</p>
+      {% endfor %}
+    </div>
+
+    <!-- Nova Loja -->
+    <div class="tab-content" id="tab-nova-loja">
+      <form method="post" action="/api/lojas">
+        <div class="form-row">
+          <div><label>Nome da Loja</label><input type="text" name="nome" required></div>
+          <div><label>Meta Mensal (R$)</label><input type="number" name="meta" step="100" value="0"></div>
+        </div>
+        <button type="submit" class="btn">Criar Loja</button>
+      </form>
+    </div>
+
+    <!-- Nova Vendedora -->
+    <div class="tab-content" id="tab-nova-vendedora">
+      <form method="post" action="/api/vendedoras">
+        <div class="form-row">
+          <div><label>Nome</label><input type="text" name="nome" required></div>
+          <div><label>E-mail</label><input type="email" name="email" required></div>
+          <div><label>Senha</label><input type="password" name="senha" required></div>
+        </div>
+        <div class="form-row">
+          <div>
+            <label>Loja</label>
+            <select name="loja_id">
+              <option value="0">Sem loja</option>
+              {% for loja in lojas %}
+              <option value="{{ loja.id }}">{{ loja.nome }}</option>
+              {% endfor %}
+            </select>
+          </div>
+          <div><label>Nome no Bling (exato)</label><input type="text" name="bling_nome"></div>
+          <div><label>Meta Mensal (R$)</label><input type="number" name="meta" step="100" value="0"></div>
+          <div><label>Comissão (%)</label><input type="number" name="comissao" step="0.5" value="5"></div>
+        </div>
+        <button type="submit" class="btn">Criar Vendedora</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Modal editar meta -->
+<div id="modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:100;align-items:center;justify-content:center;">
+  <div class="card" style="width:400px;">
+    <div class="section-title">Editar Meta da Vendedora</div>
+    <form id="formMeta" method="post">
+      <div><label>Meta Mensal (R$)</label><input type="number" id="inputMeta" name="meta" step="100"></div>
+      <div style="margin-top:12px;"><label>Comissão (%)</label><input type="number" id="inputComissao" name="comissao" step="0.5"></div>
+      <div style="display:flex;gap:8px;margin-top:16px;">
+        <button type="submit" class="btn">Salvar</button>
+        <button type="button" onclick="fecharModal()" class="btn btn-outline">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function trocarAba(id, el) {
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  el.classList.add('active');
+}
+
+function editarMeta(id, meta, comissao) {
+  document.getElementById('formMeta').action = '/api/vendedoras/' + id + '/meta';
+  document.getElementById('inputMeta').value = meta;
+  document.getElementById('inputComissao').value = comissao;
+  document.getElementById('modal').style.display = 'flex';
+}
+
+function fecharModal() {
+  document.getElementById('modal').style.display = 'none';
+}
+
+async function sincronizar() {
+  const btn = document.getElementById('btnSync');
+  btn.textContent = '⏳ Sincronizando...';
+  btn.disabled = true;
+  try {
+    const r = await fetch('/api/sincronizar', {method: 'POST'});
+    const d = await r.json();
+    btn.textContent = `✅ ${d.novos} novos`;
+    setTimeout(() => { btn.textContent = '🔄 Sincronizar'; btn.disabled = false; }, 3000);
+  } catch(e) {
+    btn.textContent = '❌ Erro';
+    setTimeout(() => { btn.textContent = '🔄 Sincronizar'; btn.disabled = false; }, 3000);
+  }
+}
+</script>
+</body>
+</html>
