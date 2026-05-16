@@ -56,8 +56,6 @@ static_dir = os.path.join(BASE_DIR, "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-# ── Helpers ──────────────────────────────────────────────
-
 def get_user(request: Request, db: Session):
     token = request.cookies.get("token")
     if not token:
@@ -69,8 +67,6 @@ def get_user(request: Request, db: Session):
 
 def fmt_brl(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-
-# ── Auth ─────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request, db: Session = Depends(get_db)):
@@ -88,58 +84,31 @@ async def login(request: Request, email: str = Form(...), senha: str = Form(...)
     resp = RedirectResponse("/gerente" if user.is_gerente else "/vendedora", status_code=303)
     resp.set_cookie("token", token, max_age=30*24*3600, httponly=True)
     return resp
-@app.get("/api/debug-bling")
-async def debug_bling(request: Request, db: Session = Depends(get_db)):
-    user = get_user(request, db)
-    if not user or not user.is_gerente:
-        raise HTTPException(403)
-    from models import TokenBling
-    from datetime import datetime
-    token = db.query(TokenBling).first()
-    if not token:
-        return {"erro": "Sem token"}
-    return {
-        "tem_token": True,
-        "expires_at": str(token.expires_at),
-        "expirado": token.expires_at < datetime.utcnow(),
-        "access_token_inicio": token.access_token[:20] if token.access_token else None
-    }
+
 @app.get("/logout")
 async def logout():
     resp = RedirectResponse("/")
     resp.delete_cookie("token")
     return resp
 
-# ── Dashboard Gerente ─────────────────────────────────────
-
 @app.get("/gerente", response_class=HTMLResponse)
 async def gerente_dashboard(request: Request, db: Session = Depends(get_db)):
     user = get_user(request, db)
     if not user or not user.is_gerente:
         return RedirectResponse("/")
-    
     agora = datetime.now()
     inicio_mes = agora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     hoje = agora.replace(hour=0, minute=0, second=0, microsecond=0)
-    
     lojas = db.query(Loja).filter(Loja.ativa == True).all()
     vendedoras = db.query(Vendedora).filter(Vendedora.is_gerente == False, Vendedora.ativa == True).all()
-    
-    # Vendas do mês
     vendas_mes = db.query(Venda).filter(Venda.data_venda >= inicio_mes).all()
     total_mes = sum(v.valor_total for v in vendas_mes)
-    
-    # Vendas hoje
     vendas_hoje = [v for v in vendas_mes if v.data_venda >= hoje]
     total_hoje = sum(v.valor_total for v in vendas_hoje)
-    
-    # Ranking vendedoras
     ranking = {}
     for v in vendas_mes:
         ranking[v.vendedora_nome] = ranking.get(v.vendedora_nome, 0) + v.valor_total
     ranking_list = sorted(ranking.items(), key=lambda x: x[1], reverse=True)[:10]
-    
-    # Stats por loja
     lojas_stats = []
     for loja in lojas:
         vendas_loja = [v for v in vendas_mes if v.loja_id == loja.id]
@@ -152,7 +121,6 @@ async def gerente_dashboard(request: Request, db: Session = Depends(get_db)):
             "pct": min(pct, 100),
             "pct_num": pct
         })
-    
     return templates.TemplateResponse("gerente.html", {
         "request": request,
         "user": user,
@@ -166,30 +134,23 @@ async def gerente_dashboard(request: Request, db: Session = Depends(get_db)):
         "lojas": lojas,
     })
 
-# ── Dashboard Vendedora ───────────────────────────────────
-
 @app.get("/vendedora", response_class=HTMLResponse)
 async def vendedora_dashboard(request: Request, db: Session = Depends(get_db)):
     user = get_user(request, db)
     if not user or user.is_gerente:
         return RedirectResponse("/")
-    
     agora = datetime.now()
     inicio_mes = agora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     hoje = agora.replace(hour=0, minute=0, second=0, microsecond=0)
-    
     vendas_mes = db.query(Venda).filter(
         Venda.data_venda >= inicio_mes,
         Venda.vendedora_nome == user.bling_vendedor_nome
     ).all() if user.bling_vendedor_nome else []
-    
     fat_mes = sum(v.valor_total for v in vendas_mes)
     fat_hoje = sum(v.valor_total for v in vendas_mes if v.data_venda >= hoje)
     pecas_mes = sum(v.num_itens for v in vendas_mes)
     comissao = fat_mes * user.percentual_comissao / 100
     pct_meta = int(fat_mes / user.meta_mensal * 100) if user.meta_mensal > 0 else 0
-    
-    # Ranking da loja
     if user.loja_id:
         vendas_loja = db.query(Venda).filter(Venda.data_venda >= inicio_mes, Venda.loja_id == user.loja_id).all()
         ranking = {}
@@ -198,7 +159,6 @@ async def vendedora_dashboard(request: Request, db: Session = Depends(get_db)):
         ranking_list = sorted(ranking.items(), key=lambda x: x[1], reverse=True)
     else:
         ranking_list = []
-    
     return templates.TemplateResponse("vendedora.html", {
         "request": request,
         "user": user,
@@ -211,8 +171,6 @@ async def vendedora_dashboard(request: Request, db: Session = Depends(get_db)):
         "meta": fmt_brl(user.meta_mensal),
         "ranking": [(n, fmt_brl(v), n == user.bling_vendedor_nome) for n, v in ranking_list],
     })
-
-# ── API Gerente ───────────────────────────────────────────
 
 @app.post("/api/sincronizar")
 async def sincronizar(request: Request, db: Session = Depends(get_db)):
@@ -270,8 +228,6 @@ async def atualizar_meta_vendedora(vid: int, request: Request, meta: float = For
         db.commit()
     return RedirectResponse("/gerente", status_code=303)
 
-# ── Bling OAuth ───────────────────────────────────────────
-
 @app.get("/auth/bling")
 async def iniciar_bling():
     return RedirectResponse(bling_svc.gerar_url_autorizacao())
@@ -284,6 +240,15 @@ async def callback_bling(code: str = None, state: str = None, error: str = None,
     if not ok:
         raise HTTPException(500, "Erro ao conectar Bling.")
     return HTMLResponse("<h2>✅ Bling conectado! Pode fechar esta janela.</h2>")
+
+@app.get("/api/reset-vendas")
+async def reset_vendas(request: Request, db: Session = Depends(get_db)):
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        raise HTTPException(403)
+    db.query(Venda).delete()
+    db.commit()
+    return {"ok": "vendas apagadas"}
 
 @app.get("/health")
 async def health():
