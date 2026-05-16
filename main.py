@@ -88,7 +88,22 @@ async def login(request: Request, email: str = Form(...), senha: str = Form(...)
     resp = RedirectResponse("/gerente" if user.is_gerente else "/vendedora", status_code=303)
     resp.set_cookie("token", token, max_age=30*24*3600, httponly=True)
     return resp
-
+@app.get("/api/debug-bling")
+async def debug_bling(request: Request, db: Session = Depends(get_db)):
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        raise HTTPException(403)
+    from models import TokenBling
+    from datetime import datetime
+    token = db.query(TokenBling).first()
+    if not token:
+        return {"erro": "Sem token"}
+    return {
+        "tem_token": True,
+        "expires_at": str(token.expires_at),
+        "expirado": token.expires_at < datetime.utcnow(),
+        "access_token_inicio": token.access_token[:20] if token.access_token else None
+    }
 @app.get("/logout")
 async def logout():
     resp = RedirectResponse("/")
