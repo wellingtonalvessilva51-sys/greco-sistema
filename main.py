@@ -253,3 +253,12 @@ async def reset_vendas(request: Request, db: Session = Depends(get_db)):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+@app.get("/dev/bling-token")
+async def dev_bling_token(secret: str = "", db: Session = Depends(get_db)):
+    if secret != "modexa-dev-2026":
+        raise HTTPException(403)
+    t = db.query(TokenBling).first()
+    if not t:
+        return {"error": "nenhum token encontrado"}
+    return {"access_token": t.access_token, "refresh_token": t.refresh_token, "expires_at": str(t.expires_at)}
