@@ -63,5 +63,20 @@ class TokenBling(Base):
     expires_at = Column(DateTime)
     atualizado_em = Column(DateTime, default=datetime.utcnow)
 
+class Produto(Base):
+    __tablename__ = "produtos"
+    id = Column(Integer, primary_key=True)
+    bling_produto_id = Column(String, unique=True, nullable=False)
+    nome = Column(String, nullable=False)
+    sku = Column(String, nullable=False)
+    gtin = Column(String, default="")
+    ncm = Column(String, default="")
+    preco_venda = Column(Float, default=0)
+    preco_custo = Column(Float, default=0)
+    estoque_inicial = Column(Integer, default=0)
+    descricao = Column(Text, default="")
+    tem_variacoes = Column(Boolean, default=False)
+    criado_em = Column(DateTime, default=datetime.utcnow)
+
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)

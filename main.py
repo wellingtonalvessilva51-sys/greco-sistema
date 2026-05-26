@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 import os, logging
 
-from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling
+from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
 import bling as bling_svc
 
@@ -249,6 +249,34 @@ async def reset_vendas(request: Request, db: Session = Depends(get_db)):
     db.query(Venda).delete()
     db.commit()
     return {"ok": "vendas apagadas"}
+
+@app.post("/api/produtos")
+async def receber_produto_n8n(request: Request, db: Session = Depends(get_db)):
+    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+        raise HTTPException(403, "Chave inválida")
+    data = await request.json()
+    bling_id = str(data.get("bling_produto_id", ""))
+    if not bling_id:
+        raise HTTPException(400, "bling_produto_id obrigatório")
+    existente = db.query(Produto).filter(Produto.bling_produto_id == bling_id).first()
+    if existente:
+        return {"ok": True, "id": existente.id, "novo": False}
+    p = Produto(
+        bling_produto_id=bling_id,
+        nome=data.get("nome", ""),
+        sku=data.get("sku", ""),
+        gtin=data.get("gtin", ""),
+        ncm=data.get("ncm", ""),
+        preco_venda=float(data.get("preco_venda", 0)),
+        preco_custo=float(data.get("preco_custo", 0)),
+        estoque_inicial=int(data.get("estoque_inicial", 0)),
+        descricao=data.get("descricao", ""),
+        tem_variacoes=bool(data.get("tem_variacoes", False)),
+    )
+    db.add(p)
+    db.commit()
+    db.refresh(p)
+    return {"ok": True, "id": p.id, "bling_produto_id": p.bling_produto_id, "novo": True}
 
 @app.get("/health")
 async def health():
