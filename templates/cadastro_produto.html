@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cadastrar Produto - Sistema Greco</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;min-height:100vh;}
+.header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+.header h1{color:#c9a84c;font-size:18px;}
+.btn{background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;}
+.btn:disabled{opacity:.5;cursor:not-allowed;}
+.btn-outline{background:transparent;border:1px solid #2e2b24;color:#f0ece3;}
+.container{max-width:600px;margin:32px auto;padding:0 24px;}
+.card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;padding:24px;margin-bottom:20px;}
+.card-title{font-size:14px;font-weight:700;color:#c9a84c;margin-bottom:20px;border-bottom:1px solid #2e2b24;padding-bottom:12px;}
+.dropzone{border:2px dashed #2e2b24;border-radius:12px;padding:40px 20px;text-align:center;cursor:pointer;transition:border-color .2s;position:relative;}
+.dropzone:hover,.dropzone.drag-over{border-color:#c9a84c;}
+.dropzone input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%;height:100%;}
+.dropzone-icon{font-size:40px;margin-bottom:12px;}
+.dropzone-text{color:#6b6455;font-size:14px;}
+.dropzone-text strong{color:#c9a84c;}
+.preview{width:100%;max-height:300px;object-fit:cover;border-radius:8px;display:none;margin-top:16px;}
+.form-group{margin-bottom:16px;}
+label{display:block;font-size:11px;color:#6b6455;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;}
+input[type=number],input[type=text]{width:100%;background:#222018;border:1px solid #2e2b24;border-radius:8px;padding:12px;color:#f0ece3;font-size:14px;}
+input:focus{outline:none;border-color:#c9a84c;}
+.toggle-row{display:flex;justify-content:space-between;align-items:center;padding:12px 0;}
+.toggle{position:relative;width:44px;height:24px;cursor:pointer;}
+.toggle input{opacity:0;width:0;height:0;}
+.toggle-slider{position:absolute;inset:0;background:#2e2b24;border-radius:24px;transition:.3s;}
+.toggle-slider:before{content:'';position:absolute;width:18px;height:18px;left:3px;bottom:3px;background:#6b6455;border-radius:50%;transition:.3s;}
+.toggle input:checked + .toggle-slider{background:#c9a84c;}
+.toggle input:checked + .toggle-slider:before{transform:translateX(20px);background:#0f0e0c;}
+.tamanhos-group{display:none;margin-top:12px;}
+.tamanhos-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;}
+.chip{background:#222018;border:1px solid #2e2b24;border-radius:6px;padding:6px 12px;font-size:13px;cursor:pointer;transition:.2s;}
+.chip.selected{background:#c9a84c;border-color:#c9a84c;color:#0f0e0c;font-weight:700;}
+.submit-area{text-align:center;margin-top:8px;}
+.btn-full{width:100%;padding:14px;font-size:15px;}
+.spinner{display:none;width:20px;height:20px;border:2px solid #0f0e0c;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;margin:0 auto;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.result{display:none;margin-top:20px;}
+.result-success{background:rgba(201,168,76,.1);border:1px solid #c9a84c;border-radius:10px;padding:20px;text-align:center;}
+.result-error{background:rgba(224,92,92,.1);border:1px solid #e05c5c;border-radius:10px;padding:20px;text-align:center;color:#e05c5c;}
+.result-nome{font-size:18px;font-weight:700;color:#c9a84c;margin-bottom:8px;}
+.result-info{font-size:13px;color:#6b6455;}
+.result-id{font-size:24px;font-weight:700;color:#f0ece3;margin:8px 0;}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>Modexa — Cadastro de Produto</h1>
+  <a href="/gerente" class="btn btn-outline" style="padding:6px 14px;font-size:13px;">← Voltar</a>
+</div>
+
+<div class="container">
+  <div class="card">
+    <div class="card-title">Foto do Produto</div>
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="imagem" accept="image/*" capture="environment">
+      <div class="dropzone-icon">📷</div>
+      <div class="dropzone-text">Arraste a foto aqui ou <strong>clique para selecionar</strong></div>
+      <div class="dropzone-text" style="margin-top:4px;font-size:12px;">JPG, PNG, WEBP</div>
+    </div>
+    <img id="preview" class="preview" alt="Preview">
+  </div>
+
+  <div class="card">
+    <div class="card-title">Dados do Produto</div>
+
+    <div class="form-group">
+      <label>Quantidade em estoque</label>
+      <input type="number" id="quantidade" min="1" value="1" placeholder="Ex: 10">
+    </div>
+
+    <div class="form-group">
+      <label>Custo unitário (R$)</label>
+      <input type="number" id="custo" min="0" step="0.01" placeholder="Ex: 45.00">
+    </div>
+
+    <div class="toggle-row">
+      <span style="font-size:14px;">Produto com variações de tamanho?</span>
+      <label class="toggle">
+        <input type="checkbox" id="tem_variacoes">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="tamanhos-group" id="tamanhos_group">
+      <label>Tamanhos disponíveis</label>
+      <div class="tamanhos-chips" id="chips">
+        <div class="chip" data-tam="PP">PP</div>
+        <div class="chip" data-tam="P">P</div>
+        <div class="chip" data-tam="M">M</div>
+        <div class="chip" data-tam="G">G</div>
+        <div class="chip" data-tam="GG">GG</div>
+        <div class="chip" data-tam="XGG">XGG</div>
+        <div class="chip" data-tam="36">36</div>
+        <div class="chip" data-tam="38">38</div>
+        <div class="chip" data-tam="40">40</div>
+        <div class="chip" data-tam="42">42</div>
+        <div class="chip" data-tam="44">44</div>
+        <div class="chip" data-tam="46">46</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="submit-area">
+    <button class="btn btn-full" id="btn_cadastrar" onclick="cadastrar()">
+      <span id="btn_text">Cadastrar Produto com IA</span>
+      <div class="spinner" id="spinner"></div>
+    </button>
+  </div>
+
+  <div class="result" id="result"></div>
+</div>
+
+<script>
+// Preview de imagem
+document.getElementById('imagem').addEventListener('change', function(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    const img = document.getElementById('preview');
+    img.src = ev.target.result;
+    img.style.display = 'block';
+    document.querySelector('.dropzone-icon').style.display = 'none';
+    document.querySelectorAll('.dropzone-text').forEach(el => el.style.display = 'none');
+  };
+  reader.readAsDataURL(file);
+});
+
+// Drag & drop
+const dz = document.getElementById('dropzone');
+dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
+dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
+dz.addEventListener('drop', e => {
+  e.preventDefault();
+  dz.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file) {
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    document.getElementById('imagem').files = dt.files;
+    document.getElementById('imagem').dispatchEvent(new Event('change'));
+  }
+});
+
+// Toggle variações
+document.getElementById('tem_variacoes').addEventListener('change', function() {
+  document.getElementById('tamanhos_group').style.display = this.checked ? 'block' : 'none';
+});
+
+// Chips de tamanho
+document.querySelectorAll('.chip').forEach(chip => {
+  chip.addEventListener('click', () => chip.classList.toggle('selected'));
+});
+
+// Cadastrar
+async function cadastrar() {
+  const imagem = document.getElementById('imagem').files[0];
+  if (!imagem) return alert('Selecione uma foto do produto.');
+  const quantidade = document.getElementById('quantidade').value;
+  if (!quantidade || quantidade < 1) return alert('Informe a quantidade.');
+  const custo = document.getElementById('custo').value;
+  if (!custo || custo <= 0) return alert('Informe o custo unitário.');
+
+  const btn = document.getElementById('btn_cadastrar');
+  const btnText = document.getElementById('btn_text');
+  const spinner = document.getElementById('spinner');
+  btn.disabled = true;
+  btnText.style.display = 'none';
+  spinner.style.display = 'block';
+  document.getElementById('result').style.display = 'none';
+
+  const temVarStr = document.getElementById('tem_variacoes').checked ? 'true' : 'false';
+  const tamanhos = [...document.querySelectorAll('.chip.selected')].map(c => c.dataset.tam).join(',');
+
+  const form = new FormData();
+  form.append('imagem', imagem);
+  form.append('quantidade', quantidade);
+  form.append('custo_unitario', custo);
+  form.append('tem_variacoes', temVarStr);
+  form.append('tamanhos', tamanhos);
+
+  try {
+    const resp = await fetch('/api/cadastrar-produto', { method: 'POST', body: form });
+    const data = await resp.json();
+    const resultDiv = document.getElementById('result');
+    resultDiv.style.display = 'block';
+
+    if (data.ok) {
+      const inner = data.data;
+      const blingId = inner?.bling_produto_id || inner?.data?.id || '—';
+      const nome = inner?.nome || '—';
+      resultDiv.innerHTML = `
+        <div class="result-success">
+          <div style="font-size:28px;margin-bottom:8px;">✅</div>
+          <div class="result-nome">${nome !== '—' ? nome : 'Produto cadastrado!'}</div>
+          <div class="result-info">ID no Bling</div>
+          <div class="result-id">${blingId}</div>
+          ${data.aviso ? `<div class="result-info" style="margin-top:8px;">${data.aviso}</div>` : ''}
+        </div>`;
+    } else {
+      resultDiv.innerHTML = `<div class="result-error">Erro ao cadastrar produto. Tente novamente.</div>`;
+    }
+  } catch(e) {
+    document.getElementById('result').style.display = 'block';
+    document.getElementById('result').innerHTML = `<div class="result-error">Erro de conexão. Tente novamente.</div>`;
+  } finally {
+    btn.disabled = false;
+    btnText.style.display = 'inline';
+    spinner.style.display = 'none';
+  }
+}
+</script>
+</body>
+</html>

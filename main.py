@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -7,7 +7,8 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-import os, logging
+from pathlib import Path
+import os, logging, uuid
 
 from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
@@ -46,6 +47,7 @@ def _setup_inicial():
             logger.info(f"Gerente criada: {email}")
     finally:
         db.close()
+    Path("uploads").mkdir(exist_ok=True)
 
 app = FastAPI(title="Sistema Greco", lifespan=lifespan)
 
@@ -55,6 +57,10 @@ templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
 static_dir = os.path.join(BASE_DIR, "static")
 if os.path.exists(static_dir):
     app.mount("/static", StaticFiles(directory=static_dir), name="static")
+
+uploads_dir = os.path.join(BASE_DIR, "uploads")
+Path(uploads_dir).mkdir(exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 def get_user(request: Request, db: Session):
     token = request.cookies.get("token")
@@ -277,6 +283,55 @@ async def receber_produto_n8n(request: Request, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(p)
     return {"ok": True, "id": p.id, "bling_produto_id": p.bling_produto_id, "novo": True}
+
+@app.get("/cadastrar-produto", response_class=HTMLResponse)
+async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        return RedirectResponse("/")
+    return templates.TemplateResponse("cadastro_produto.html", {"request": request, "user": user})
+
+@app.post("/api/cadastrar-produto")
+async def api_cadastrar_produto(
+    request: Request,
+    imagem: UploadFile = File(...),
+    quantidade: int = Form(...),
+    custo_unitario: float = Form(...),
+    tem_variacoes: str = Form("false"),
+    tamanhos: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        raise HTTPException(403)
+    ext = (imagem.filename or "img.jpg").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        ext = "jpg"
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    upload_path = Path(BASE_DIR) / "uploads" / filename
+    upload_path.write_bytes(await imagem.read())
+    base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
+    image_url = f"{base_url}/uploads/{filename}"
+    tamanhos_list = [t.strip() for t in tamanhos.split(",") if t.strip()] if tamanhos else []
+    webhook_url = os.getenv("N8N_WEBHOOK_URL", "https://grecomoda.app.n8n.cloud/webhook/cadastro-produto")
+    payload = {
+        "image_url": image_url,
+        "quantidade": quantidade,
+        "custo_unitario": custo_unitario,
+        "tem_variacoes": tem_variacoes.lower() == "true",
+        "tamanhos": tamanhos_list
+    }
+    try:
+        async with httpx.AsyncClient(timeout=90) as client:
+            resp = await client.post(webhook_url, json=payload)
+        if resp.status_code in (200, 202):
+            try:
+                return JSONResponse({"ok": True, "data": resp.json()})
+            except Exception:
+                return JSONResponse({"ok": True, "data": {}})
+        raise HTTPException(500, f"n8n retornou {resp.status_code}")
+    except httpx.TimeoutException:
+        return JSONResponse({"ok": True, "data": {}, "aviso": "Processando... verifique o Bling em instantes."})
 
 @app.get("/health")
 async def health():
