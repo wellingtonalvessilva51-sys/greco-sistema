@@ -205,11 +205,12 @@ async function cadastrar() {
           ${data.aviso ? `<div class="result-info" style="margin-top:8px;">${data.aviso}</div>` : ''}
         </div>`;
     } else {
-      resultDiv.innerHTML = `<div class="result-error">Erro ao cadastrar produto. Tente novamente.</div>`;
+      const detalhe = data.detail || data.erro || JSON.stringify(data);
+      resultDiv.innerHTML = `<div class="result-error"><strong>Erro ao cadastrar produto.</strong><br><small style="word-break:break-all;">${detalhe}</small></div>`;
     }
   } catch(e) {
     document.getElementById('result').style.display = 'block';
-    document.getElementById('result').innerHTML = `<div class="result-error">Erro de conexão. Tente novamente.</div>`;
+    document.getElementById('result').innerHTML = `<div class="result-error">Erro de conexão: ${e.message}</div>`;
   } finally {
     btn.disabled = false;
     btnText.style.display = 'inline';

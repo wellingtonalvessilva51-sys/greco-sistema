@@ -330,9 +330,15 @@ async def api_cadastrar_produto(
                 return JSONResponse({"ok": True, "data": resp.json()})
             except Exception:
                 return JSONResponse({"ok": True, "data": {}})
-        raise HTTPException(500, f"n8n retornou {resp.status_code}")
+        try:
+            detalhe = resp.json()
+        except Exception:
+            detalhe = resp.text[:500]
+        return JSONResponse({"ok": False, "detail": f"n8n retornou {resp.status_code}: {detalhe}"}, status_code=200)
     except httpx.TimeoutException:
         return JSONResponse({"ok": True, "data": {}, "aviso": "Processando... verifique o Bling em instantes."})
+    except Exception as e:
+        return JSONResponse({"ok": False, "detail": str(e)}, status_code=200)
 
 @app.get("/health")
 async def health():
