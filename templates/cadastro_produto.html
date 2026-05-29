@@ -75,13 +75,24 @@ input:focus{outline:none;border-color:#c9a84c;}
     <div class="card-title">Dados do Produto</div>
 
     <div class="form-group">
-      <label>Quantidade padrão por variação</label>
-      <input type="number" id="quantidade" min="1" value="1" placeholder="Ex: 10" oninput="atualizarEstoques()">
+      <label>Nome do produto <span style="color:#6b6455;font-weight:400;">(opcional — se vazio, a IA sugere)</span></label>
+      <input type="text" id="nome_produto" placeholder="Ex: Vestido Midi Floral Manga Longa">
+    </div>
+
+    <div class="form-group" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+      <div>
+        <label>Custo unitário (R$)</label>
+        <input type="number" id="custo" min="0" step="0.01" placeholder="Ex: 45.00">
+      </div>
+      <div>
+        <label>Preço de venda (R$) <span style="color:#6b6455;font-weight:400;">(opcional)</span></label>
+        <input type="number" id="preco_venda" min="0" step="0.01" placeholder="Ex: 112.50">
+      </div>
     </div>
 
     <div class="form-group">
-      <label>Custo unitário (R$)</label>
-      <input type="number" id="custo" min="0" step="0.01" placeholder="Ex: 45.00">
+      <label>Quantidade padrão por variação</label>
+      <input type="number" id="quantidade" min="1" value="1" placeholder="Ex: 10" oninput="atualizarEstoques()">
     </div>
 
     <div class="toggle-row">
@@ -290,6 +301,9 @@ async function cadastrar() {
     estoqueVar[row.dataset.nome] = parseInt(row.querySelector('input').value) || 1;
   });
 
+  const nomeProduto = document.getElementById('nome_produto').value.trim();
+  const precoVenda = document.getElementById('preco_venda').value;
+
   const form = new FormData();
   form.append('imagem', imagem);
   form.append('quantidade', quantidade);
@@ -299,6 +313,8 @@ async function cadastrar() {
   form.append('tem_cores', temCoresStr);
   form.append('cores', cores);
   form.append('estoque_variacoes', JSON.stringify(estoqueVar));
+  if (nomeProduto) form.append('nome_produto', nomeProduto);
+  if (precoVenda) form.append('preco_venda', precoVenda);
 
   try {
     const resp = await fetch('/api/cadastrar-produto', { method: 'POST', body: form });
