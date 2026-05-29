@@ -302,6 +302,7 @@ async def api_cadastrar_produto(
     tamanhos: str = Form(""),
     tem_cores: str = Form("false"),
     cores: str = Form(""),
+    estoque_variacoes: str = Form("{}"),
     db: Session = Depends(get_db)
 ):
     user = get_user(request, db)
@@ -315,8 +316,13 @@ async def api_cadastrar_produto(
     upload_path.write_bytes(await imagem.read())
     base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
     image_url = f"{base_url}/uploads/{filename}"
+    import json as _json
     tamanhos_list = [t.strip() for t in tamanhos.split(",") if t.strip()] if tamanhos else []
     cores_list = [c.strip() for c in cores.split(",") if c.strip()] if cores else []
+    try:
+        estoque_var_dict = _json.loads(estoque_variacoes)
+    except Exception:
+        estoque_var_dict = {}
     webhook_url = os.getenv("N8N_WEBHOOK_URL", "https://grecomoda.app.n8n.cloud/webhook/cadastro-produto")
     payload = {
         "image_url": image_url,
@@ -325,7 +331,8 @@ async def api_cadastrar_produto(
         "tem_variacoes": tem_variacoes.lower() == "true",
         "tamanhos": tamanhos_list,
         "tem_cores": tem_cores.lower() == "true",
-        "cores": cores_list
+        "cores": cores_list,
+        "estoque_variacoes": estoque_var_dict
     }
     try:
         async with httpx.AsyncClient(timeout=90) as client:

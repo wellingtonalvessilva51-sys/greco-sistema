@@ -47,6 +47,10 @@ input:focus{outline:none;border-color:#c9a84c;}
 .result-nome{font-size:18px;font-weight:700;color:#c9a84c;margin-bottom:8px;}
 .result-info{font-size:13px;color:#6b6455;}
 .result-id{font-size:24px;font-weight:700;color:#f0ece3;margin:8px 0;}
+.estoque-grid{display:flex;flex-direction:column;gap:8px;margin-top:12px;}
+.estoque-row{display:flex;align-items:center;gap:12px;}
+.estoque-row-nome{flex:1;font-size:13px;color:#f0ece3;background:#222018;border:1px solid #2e2b24;border-radius:6px;padding:8px 12px;}
+.estoque-row input{width:90px;flex-shrink:0;}
 </style>
 </head>
 <body>
@@ -71,8 +75,8 @@ input:focus{outline:none;border-color:#c9a84c;}
     <div class="card-title">Dados do Produto</div>
 
     <div class="form-group">
-      <label>Quantidade em estoque</label>
-      <input type="number" id="quantidade" min="1" value="1" placeholder="Ex: 10">
+      <label>Quantidade padrão por variação</label>
+      <input type="number" id="quantidade" min="1" value="1" placeholder="Ex: 10" oninput="atualizarEstoques()">
     </div>
 
     <div class="form-group">
@@ -149,6 +153,11 @@ input:focus{outline:none;border-color:#c9a84c;}
     </div>
   </div>
 
+  <div class="card" id="card_estoque" style="display:none;">
+    <div class="card-title">Estoque por Variação</div>
+    <div class="estoque-grid" id="estoque_grid"></div>
+  </div>
+
   <div class="submit-area">
     <button class="btn btn-full" id="btn_cadastrar" onclick="cadastrar()">
       <span id="btn_text">Cadastrar Produto com IA</span>
@@ -194,15 +203,64 @@ dz.addEventListener('drop', e => {
 // Toggles
 document.getElementById('tem_variacoes').addEventListener('change', function() {
   document.getElementById('tamanhos_group').style.display = this.checked ? 'block' : 'none';
+  atualizarEstoques();
 });
 document.getElementById('tem_cores').addEventListener('change', function() {
   document.getElementById('cores_group').style.display = this.checked ? 'block' : 'none';
+  atualizarEstoques();
 });
 
 // Chips
 document.querySelectorAll('.chip').forEach(chip => {
-  chip.addEventListener('click', () => chip.classList.toggle('selected'));
+  chip.addEventListener('click', () => {
+    chip.classList.toggle('selected');
+    atualizarEstoques();
+  });
 });
+
+function getVariacoes() {
+  const temTam = document.getElementById('tem_variacoes').checked;
+  const temCor = document.getElementById('tem_cores').checked;
+  const tams = temTam ? [...document.querySelectorAll('#chips .chip.selected')].map(c => c.dataset.tam) : [];
+  const cors = temCor ? [...document.querySelectorAll('#chips_cores .chip.selected')].map(c => c.dataset.cor) : [];
+
+  if (tams.length && cors.length) {
+    const combo = [];
+    for (const t of tams) for (const c of cors) combo.push(`${t} / ${c}`);
+    return combo;
+  }
+  if (tams.length) return tams.map(t => `Tamanho: ${t}`);
+  if (cors.length) return cors.map(c => `Cor: ${c}`);
+  return [];
+}
+
+function atualizarEstoques() {
+  const variacoes = getVariacoes();
+  const card = document.getElementById('card_estoque');
+  const grid = document.getElementById('estoque_grid');
+  const qtdPadrao = document.getElementById('quantidade').value || 1;
+
+  if (variacoes.length === 0) {
+    card.style.display = 'none';
+    return;
+  }
+
+  // Preserva valores já digitados
+  const existentes = {};
+  grid.querySelectorAll('.estoque-row').forEach(row => {
+    const nome = row.dataset.nome;
+    const val = row.querySelector('input').value;
+    if (val) existentes[nome] = val;
+  });
+
+  grid.innerHTML = variacoes.map(nome => `
+    <div class="estoque-row" data-nome="${nome}">
+      <span class="estoque-row-nome">${nome}</span>
+      <input type="number" min="0" value="${existentes[nome] ?? qtdPadrao}" placeholder="Qtd">
+    </div>`).join('');
+
+  card.style.display = 'block';
+}
 
 // Cadastrar
 async function cadastrar() {
@@ -226,6 +284,12 @@ async function cadastrar() {
   const tamanhos = [...document.querySelectorAll('#chips .chip.selected')].map(c => c.dataset.tam).join(',');
   const cores = [...document.querySelectorAll('#chips_cores .chip.selected')].map(c => c.dataset.cor).join(',');
 
+  // estoque por variação: {"P / Preto": 5, "M / Azul": 3, ...}
+  const estoqueVar = {};
+  document.querySelectorAll('#estoque_grid .estoque-row').forEach(row => {
+    estoqueVar[row.dataset.nome] = parseInt(row.querySelector('input').value) || 1;
+  });
+
   const form = new FormData();
   form.append('imagem', imagem);
   form.append('quantidade', quantidade);
@@ -234,6 +298,7 @@ async function cadastrar() {
   form.append('tamanhos', tamanhos);
   form.append('tem_cores', temCoresStr);
   form.append('cores', cores);
+  form.append('estoque_variacoes', JSON.stringify(estoqueVar));
 
   try {
     const resp = await fetch('/api/cadastrar-produto', { method: 'POST', body: form });
