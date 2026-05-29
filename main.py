@@ -282,7 +282,7 @@ async def receber_produto_n8n(request: Request, db: Session = Depends(get_db)):
     db.add(p)
     db.commit()
     db.refresh(p)
-    return {"ok": True, "id": p.id, "bling_produto_id": p.bling_produto_id, "novo": True}
+    return {"ok": True, "id": p.id, "bling_produto_id": p.bling_produto_id, "nome": p.nome, "novo": True}
 
 @app.get("/cadastrar-produto", response_class=HTMLResponse)
 async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):
