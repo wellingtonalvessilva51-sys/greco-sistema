@@ -363,4 +363,11 @@ async def dev_bling_token(secret: str = "", db: Session = Depends(get_db)):
     t = db.query(TokenBling).first()
     if not t:
         return {"error": "nenhum token encontrado"}
+    from datetime import datetime, timedelta
+    if t.expires_at < datetime.utcnow() + timedelta(minutes=10):
+        ok = await bling_svc.renovar_token(db)
+        if ok:
+            db.refresh(t)
+        else:
+            return {"error": "token expirado e renovacao falhou — refaca o login em /auth/bling"}
     return {"access_token": t.access_token, "refresh_token": t.refresh_token, "expires_at": str(t.expires_at)}
