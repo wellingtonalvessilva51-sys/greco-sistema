@@ -97,12 +97,54 @@ input:focus{outline:none;border-color:#c9a84c;}
         <div class="chip" data-tam="G">G</div>
         <div class="chip" data-tam="GG">GG</div>
         <div class="chip" data-tam="XGG">XGG</div>
+        <div class="chip" data-tam="G1">G1</div>
+        <div class="chip" data-tam="G2">G2</div>
+        <div class="chip" data-tam="G3">G3</div>
+        <div class="chip" data-tam="G4">G4</div>
         <div class="chip" data-tam="36">36</div>
         <div class="chip" data-tam="38">38</div>
         <div class="chip" data-tam="40">40</div>
         <div class="chip" data-tam="42">42</div>
         <div class="chip" data-tam="44">44</div>
         <div class="chip" data-tam="46">46</div>
+        <div class="chip" data-tam="48">48</div>
+        <div class="chip" data-tam="50">50</div>
+      </div>
+    </div>
+
+    <div class="toggle-row" style="margin-top:12px;">
+      <span style="font-size:14px;">Produto com variações de cor?</span>
+      <label class="toggle">
+        <input type="checkbox" id="tem_cores">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
+    <div class="tamanhos-group" id="cores_group">
+      <label>Cores disponíveis</label>
+      <div class="tamanhos-chips" id="chips_cores">
+        <div class="chip" data-cor="Preto">Preto</div>
+        <div class="chip" data-cor="Branco">Branco</div>
+        <div class="chip" data-cor="Cinza">Cinza</div>
+        <div class="chip" data-cor="Azul">Azul</div>
+        <div class="chip" data-cor="Azul Marinho">Marinho</div>
+        <div class="chip" data-cor="Vermelho">Vermelho</div>
+        <div class="chip" data-cor="Verde">Verde</div>
+        <div class="chip" data-cor="Amarelo">Amarelo</div>
+        <div class="chip" data-cor="Rosa">Rosa</div>
+        <div class="chip" data-cor="Pink">Pink</div>
+        <div class="chip" data-cor="Roxo">Roxo</div>
+        <div class="chip" data-cor="Lilás">Lilás</div>
+        <div class="chip" data-cor="Laranja">Laranja</div>
+        <div class="chip" data-cor="Bege">Bege</div>
+        <div class="chip" data-cor="Nude">Nude</div>
+        <div class="chip" data-cor="Off-white">Off-white</div>
+        <div class="chip" data-cor="Marrom">Marrom</div>
+        <div class="chip" data-cor="Caramelo">Caramelo</div>
+        <div class="chip" data-cor="Vinho">Vinho</div>
+        <div class="chip" data-cor="Coral">Coral</div>
+        <div class="chip" data-cor="Mostarda">Mostarda</div>
+        <div class="chip" data-cor="Terracota">Terracota</div>
       </div>
     </div>
   </div>
@@ -149,12 +191,15 @@ dz.addEventListener('drop', e => {
   }
 });
 
-// Toggle variações
+// Toggles
 document.getElementById('tem_variacoes').addEventListener('change', function() {
   document.getElementById('tamanhos_group').style.display = this.checked ? 'block' : 'none';
 });
+document.getElementById('tem_cores').addEventListener('change', function() {
+  document.getElementById('cores_group').style.display = this.checked ? 'block' : 'none';
+});
 
-// Chips de tamanho
+// Chips
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => chip.classList.toggle('selected'));
 });
@@ -177,7 +222,9 @@ async function cadastrar() {
   document.getElementById('result').style.display = 'none';
 
   const temVarStr = document.getElementById('tem_variacoes').checked ? 'true' : 'false';
-  const tamanhos = [...document.querySelectorAll('.chip.selected')].map(c => c.dataset.tam).join(',');
+  const temCoresStr = document.getElementById('tem_cores').checked ? 'true' : 'false';
+  const tamanhos = [...document.querySelectorAll('#chips .chip.selected')].map(c => c.dataset.tam).join(',');
+  const cores = [...document.querySelectorAll('#chips_cores .chip.selected')].map(c => c.dataset.cor).join(',');
 
   const form = new FormData();
   form.append('imagem', imagem);
@@ -185,6 +232,8 @@ async function cadastrar() {
   form.append('custo_unitario', custo);
   form.append('tem_variacoes', temVarStr);
   form.append('tamanhos', tamanhos);
+  form.append('tem_cores', temCoresStr);
+  form.append('cores', cores);
 
   try {
     const resp = await fetch('/api/cadastrar-produto', { method: 'POST', body: form });
