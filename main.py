@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pathlib import Path
 import os, logging, uuid
+import httpx
 
 from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
