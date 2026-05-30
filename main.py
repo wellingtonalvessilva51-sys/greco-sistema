@@ -356,6 +356,34 @@ async def api_cadastrar_produto(
     except Exception as e:
         return JSONResponse({"ok": False, "detail": str(e)}, status_code=200)
 
+@app.post("/api/bling-set-estoque")
+async def bling_set_estoque(request: Request):
+    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+        raise HTTPException(403)
+    data = await request.json()
+    token = data.get("token", "")
+    variacoes = data.get("variacoes", [])
+    deposito_id = int(data.get("deposito_id", 14887000136))
+    results = []
+    async with httpx.AsyncClient(timeout=30) as client:
+        for v in variacoes:
+            qty = float(v.get("quantidade", 0))
+            if qty <= 0:
+                continue
+            payload = {
+                "produto": {"id": int(v["id"])},
+                "deposito": {"id": deposito_id},
+                "quantidade": qty,
+                "operacao": "B"
+            }
+            resp = await client.post(
+                "https://www.bling.com.br/Api/v3/estoques",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"},
+                json=payload
+            )
+            results.append({"id": v["id"], "status": resp.status_code, "ok": resp.status_code in (200, 201)})
+    return {"ok": True, "results": results}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
