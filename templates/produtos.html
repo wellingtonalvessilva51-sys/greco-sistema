@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Produtos - Sistema Greco</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;}
+.header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
+.header h1{color:#c9a84c;font-size:18px;}
+.header-right{display:flex;gap:12px;align-items:center;}
+.btn{background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;}
+.btn-outline{background:transparent;border:1px solid #2e2b24;color:#f0ece3;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.container{max-width:1400px;margin:0 auto;padding:24px;}
+.page-title{font-size:20px;font-weight:700;color:#c9a84c;margin-bottom:20px;}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;}
+.card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;overflow:hidden;}
+.card-img{width:100%;height:200px;object-fit:cover;background:#222018;display:block;}
+.card-img-placeholder{width:100%;height:200px;background:#222018;display:flex;align-items:center;justify-content:center;color:#3e3a30;font-size:40px;}
+.card-body{padding:14px;}
+.card-nome{font-size:14px;font-weight:700;margin-bottom:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.card-sku{font-size:11px;color:#6b6455;margin-bottom:8px;font-family:monospace;}
+.card-info{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;}
+.card-preco{font-size:16px;font-weight:700;color:#c9a84c;}
+.card-estoque{font-size:12px;color:#6b6455;}
+.tag{font-size:10px;background:#2e2b24;color:#6b6455;border-radius:6px;padding:2px 7px;margin-right:4px;}
+.tag-var{background:rgba(201,168,76,.1);color:#c9a84c;}
+.card-actions{margin-top:10px;}
+.empty{text-align:center;padding:80px 20px;color:#6b6455;}
+.empty p{font-size:16px;margin-bottom:16px;}
+a{color:#c9a84c;text-decoration:none;}
+@media(max-width:768px){.grid{grid-template-columns:repeat(2,1fr);}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🏪 Sistema Greco</h1>
+  <div class="header-right">
+    <span style="color:#6b6455;font-size:13px;">Olá, {{ user.nome }}</span>
+    <a href="/gerente" class="btn btn-outline btn-sm">← Dashboard</a>
+    <a href="/cadastrar-produto" class="btn btn-sm">+ Cadastrar Produto</a>
+    <a href="/logout" class="btn btn-outline btn-sm">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="page-title">📦 Produtos Cadastrados ({{ produtos|length }})</div>
+
+  {% if produtos %}
+  <div class="grid">
+    {% for p in produtos %}
+    <div class="card">
+      {% if p.imagem_url %}
+      <img class="card-img" src="{{ p.imagem_url }}" alt="{{ p.nome }}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
+      <div class="card-img-placeholder" style="display:none">📷</div>
+      {% else %}
+      <div class="card-img-placeholder">📷</div>
+      {% endif %}
+      <div class="card-body">
+        <div class="card-nome" title="{{ p.nome }}">{{ p.nome }}</div>
+        <div class="card-sku">{{ p.sku }}</div>
+        <div class="card-info">
+          <span class="card-preco">R$ {{ "%.2f"|format(p.preco_venda) }}</span>
+          <span class="card-estoque">Estoque: {{ p.estoque_inicial }}</span>
+        </div>
+        <div>
+          {% if p.tem_variacoes %}<span class="tag tag-var">com variações</span>{% endif %}
+          {% if p.ncm %}<span class="tag">NCM {{ p.ncm }}</span>{% endif %}
+        </div>
+        <div class="card-actions">
+          <a href="https://www.bling.com.br/produtos.php#id={{ p.bling_produto_id }}" target="_blank" class="btn btn-outline btn-sm" style="font-size:11px;">Ver no Bling</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <p>Nenhum produto cadastrado ainda.</p>
+    <a href="/cadastrar-produto" class="btn">+ Cadastrar primeiro produto</a>
+  </div>
+  {% endif %}
+</div>
+</body>
+</html>

@@ -279,11 +279,20 @@ async def receber_produto_n8n(request: Request, db: Session = Depends(get_db)):
         estoque_inicial=int(data.get("estoque_inicial", 0)),
         descricao=data.get("descricao", ""),
         tem_variacoes=bool(data.get("tem_variacoes", False)),
+        imagem_url=data.get("image_url", ""),
     )
     db.add(p)
     db.commit()
     db.refresh(p)
     return {"ok": True, "id": p.id, "bling_produto_id": p.bling_produto_id, "nome": p.nome, "novo": True}
+
+@app.get("/produtos", response_class=HTMLResponse)
+async def listar_produtos(request: Request, db: Session = Depends(get_db)):
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        return RedirectResponse("/")
+    produtos = db.query(Produto).order_by(Produto.criado_em.desc()).all()
+    return templates.TemplateResponse("produtos.html", {"request": request, "user": user, "produtos": produtos})
 
 @app.get("/cadastrar-produto", response_class=HTMLResponse)
 async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):

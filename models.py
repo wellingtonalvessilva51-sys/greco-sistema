@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, text
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -76,7 +76,14 @@ class Produto(Base):
     estoque_inicial = Column(Integer, default=0)
     descricao = Column(Text, default="")
     tem_variacoes = Column(Boolean, default=False)
+    imagem_url = Column(String, default="")
     criado_em = Column(DateTime, default=datetime.utcnow)
 
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE produtos ADD COLUMN imagem_url TEXT DEFAULT ''"))
+            conn.commit()
+    except Exception:
+        pass
