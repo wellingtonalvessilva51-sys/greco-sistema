@@ -11,7 +11,7 @@ from pathlib import Path
 import os, logging, uuid
 import httpx
 
-from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto
+from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
 import bling as bling_svc
 
@@ -292,7 +292,10 @@ async def listar_produtos(request: Request, db: Session = Depends(get_db)):
     if not user or not user.is_gerente:
         return RedirectResponse("/")
     produtos = db.query(Produto).order_by(Produto.criado_em.desc()).all()
-    return templates.TemplateResponse("produtos.html", {"request": request, "user": user, "produtos": produtos})
+    modelos_por_produto = {}
+    for p in produtos:
+        modelos_por_produto[p.id] = db.query(ModeloImagem).filter(ModeloImagem.produto_id == p.id).order_by(ModeloImagem.tamanho).all()
+    return templates.TemplateResponse("produtos.html", {"request": request, "user": user, "produtos": produtos, "modelos": modelos_por_produto})
 
 @app.get("/cadastrar-produto", response_class=HTMLResponse)
 async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):
@@ -392,6 +395,56 @@ async def bling_set_estoque(request: Request):
             )
             results.append({"id": v["id"], "status": resp.status_code, "ok": resp.status_code in (200, 201)})
     return {"ok": True, "results": results}
+
+@app.post("/api/gerar-imagens-modelo")
+async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
+    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+        raise HTTPException(403)
+    data = await request.json()
+    bling_id = str(data.get("bling_produto_id", ""))
+    modelos = data.get("modelos", [])
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    if not openai_key:
+        return {"ok": False, "error": "OPENAI_API_KEY nao configurada no Railway"}
+    produto = db.query(Produto).filter(Produto.bling_produto_id == bling_id).first()
+    if not produto:
+        return {"ok": False, "error": "Produto nao encontrado"}
+    base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
+    resultados = []
+    async with httpx.AsyncClient(timeout=300) as client:
+        for modelo in modelos:
+            prompt = modelo.get("prompt", "")
+            tamanho = modelo.get("tamanho", "")
+            tipo = modelo.get("tipo", "")
+            if not prompt:
+                continue
+            try:
+                resp = await client.post(
+                    "https://api.openai.com/v1/images/generations",
+                    headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
+                    json={"model": "dall-e-3", "prompt": prompt, "n": 1, "size": "1024x1792", "quality": "standard"}
+                )
+                img_data = resp.json()
+                temp_url = img_data["data"][0]["url"]
+                img_resp = await client.get(temp_url)
+                if img_resp.status_code == 200:
+                    filename = f"modelo_{produto.id}_{tamanho}_{tipo}_{uuid.uuid4().hex[:8]}.png"
+                    path = Path(BASE_DIR) / "uploads" / filename
+                    path.write_bytes(img_resp.content)
+                    saved_url = f"{base_url}/uploads/{filename}"
+                    db.add(ModeloImagem(
+                        produto_id=produto.id,
+                        tamanho=tamanho,
+                        tipo_modelo=tipo,
+                        imagem_url=saved_url,
+                        prompt_usado=prompt
+                    ))
+                    resultados.append({"tamanho": tamanho, "tipo": tipo, "url": saved_url, "ok": True})
+            except Exception as e:
+                logger.error(f"Erro imagem modelo {tamanho}: {e}")
+                resultados.append({"tamanho": tamanho, "tipo": tipo, "ok": False, "error": str(e)})
+    db.commit()
+    return {"ok": True, "resultados": resultados}
 
 @app.get("/health")
 async def health():

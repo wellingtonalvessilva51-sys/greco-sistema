@@ -78,6 +78,18 @@ class Produto(Base):
     tem_variacoes = Column(Boolean, default=False)
     imagem_url = Column(String, default="")
     criado_em = Column(DateTime, default=datetime.utcnow)
+    imagens_modelos = relationship("ModeloImagem", back_populates="produto", cascade="all, delete-orphan")
+
+class ModeloImagem(Base):
+    __tablename__ = "modelos_imagens"
+    id = Column(Integer, primary_key=True)
+    produto_id = Column(Integer, ForeignKey("produtos.id"), nullable=False)
+    tamanho = Column(String, default="")
+    tipo_modelo = Column(String, default="")
+    imagem_url = Column(String, default="")
+    prompt_usado = Column(Text, default="")
+    criado_em = Column(DateTime, default=datetime.utcnow)
+    produto = relationship("Produto", back_populates="imagens_modelos")
 
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
