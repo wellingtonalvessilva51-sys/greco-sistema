@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pathlib import Path
-import os, logging, uuid
+import os, logging, uuid, hashlib, time
 import httpx
 
 from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem
@@ -74,6 +74,21 @@ def get_user(request: Request, db: Session):
 
 def fmt_brl(v):
     return f"R$ {v:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+
+async def cloudinary_upload(image_bytes: bytes, folder: str, filename: str) -> str:
+    cloud_name = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+    api_key = os.getenv("CLOUDINARY_API_KEY", "")
+    api_secret = os.getenv("CLOUDINARY_API_SECRET", "")
+    ts = int(time.time())
+    public_id = f"{folder}/{filename}"
+    sig = hashlib.sha1(f"public_id={public_id}&timestamp={ts}{api_secret}".encode()).hexdigest()
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.post(
+            f"https://api.cloudinary.com/v1_1/{cloud_name}/image/upload",
+            data={"api_key": api_key, "timestamp": str(ts), "signature": sig, "public_id": public_id},
+            files={"file": ("image.png", image_bytes, "image/png")}
+        )
+    return resp.json()["secure_url"]
 
 @app.get("/", response_class=HTMLResponse)
 async def login_page(request: Request, db: Session = Depends(get_db)):
@@ -325,11 +340,16 @@ async def api_cadastrar_produto(
     ext = (imagem.filename or "img.jpg").rsplit(".", 1)[-1].lower()
     if ext not in ("jpg", "jpeg", "png", "webp"):
         ext = "jpg"
-    filename = f"{uuid.uuid4().hex}.{ext}"
-    upload_path = Path(BASE_DIR) / "uploads" / filename
-    upload_path.write_bytes(await imagem.read())
-    base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
-    image_url = f"{base_url}/uploads/{filename}"
+    filename = uuid.uuid4().hex
+    image_bytes = await imagem.read()
+    try:
+        image_url = await cloudinary_upload(image_bytes, "modexa/produtos", filename)
+    except Exception as e:
+        logger.error(f"Cloudinary upload erro: {e}")
+        base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
+        fallback = Path(BASE_DIR) / "uploads" / f"{filename}.{ext}"
+        fallback.write_bytes(image_bytes)
+        image_url = f"{base_url}/uploads/{filename}.{ext}"
     import json as _json
     tamanhos_list = [t.strip() for t in tamanhos.split(",") if t.strip()] if tamanhos else []
     cores_list = [c.strip() for c in cores.split(",") if c.strip()] if cores else []
@@ -428,10 +448,15 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
                 temp_url = img_data["data"][0]["url"]
                 img_resp = await client.get(temp_url)
                 if img_resp.status_code == 200:
-                    filename = f"modelo_{produto.id}_{tamanho}_{tipo}_{uuid.uuid4().hex[:8]}.png"
-                    path = Path(BASE_DIR) / "uploads" / filename
-                    path.write_bytes(img_resp.content)
-                    saved_url = f"{base_url}/uploads/{filename}"
+                    fname = f"modelo_{produto.id}_{tamanho}_{tipo}_{uuid.uuid4().hex[:8]}"
+                    try:
+                        saved_url = await cloudinary_upload(img_resp.content, "modexa/modelos", fname)
+                    except Exception as ce:
+                        logger.error(f"Cloudinary modelo upload erro: {ce}")
+                        path = Path(BASE_DIR) / "uploads" / f"{fname}.png"
+                        path.write_bytes(img_resp.content)
+                        base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
+                        saved_url = f"{base_url}/uploads/{fname}.png"
                     db.add(ModeloImagem(
                         produto_id=produto.id,
                         tamanho=tamanho,
