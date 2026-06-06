@@ -442,19 +442,20 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
                 resp = await client.post(
                     "https://api.openai.com/v1/images/generations",
                     headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
-                    json={"model": "dall-e-3", "prompt": prompt, "n": 1, "size": "1024x1792", "quality": "standard"}
+                    json={"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "standard"}
                 )
                 img_data = resp.json()
-                temp_url = img_data["data"][0]["url"]
-                img_resp = await client.get(temp_url)
-                if img_resp.status_code == 200:
+                import base64
+                b64_str = img_data["data"][0]["b64_json"]
+                img_bytes = base64.b64decode(b64_str)
+                if img_bytes:
                     fname = f"modelo_{produto.id}_{tamanho}_{tipo}_{uuid.uuid4().hex[:8]}"
                     try:
-                        saved_url = await cloudinary_upload(img_resp.content, "modexa/modelos", fname)
+                        saved_url = await cloudinary_upload(img_bytes, "modexa/modelos", fname)
                     except Exception as ce:
                         logger.error(f"Cloudinary modelo upload erro: {ce}")
                         path = Path(BASE_DIR) / "uploads" / f"{fname}.png"
-                        path.write_bytes(img_resp.content)
+                        path.write_bytes(img_bytes)
                         base_url = os.getenv("BASE_URL", "https://greco-sistema-production.up.railway.app")
                         saved_url = f"{base_url}/uploads/{fname}.png"
                     db.add(ModeloImagem(
