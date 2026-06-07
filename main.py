@@ -445,6 +445,10 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
                     json={"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "standard"}
                 )
                 img_data = resp.json()
+                if "data" not in img_data:
+                    openai_err = img_data.get("error", {})
+                    msg = openai_err.get("message", str(img_data)) if isinstance(openai_err, dict) else str(openai_err)
+                    raise Exception(f"OpenAI: {msg}")
                 import base64
                 b64_str = img_data["data"][0]["b64_json"]
                 img_bytes = base64.b64decode(b64_str)
