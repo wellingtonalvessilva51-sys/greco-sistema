@@ -442,7 +442,7 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
                 resp = await client.post(
                     "https://api.openai.com/v1/images/generations",
                     headers={"Authorization": f"Bearer {openai_key}", "Content-Type": "application/json"},
-                    json={"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "standard"}
+                    json={"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024", "quality": "high"}
                 )
                 img_data = resp.json()
                 if "data" not in img_data:
