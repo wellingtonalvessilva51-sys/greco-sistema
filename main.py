@@ -416,6 +416,64 @@ async def bling_set_estoque(request: Request):
             results.append({"id": v["id"], "status": resp.status_code, "ok": resp.status_code in (200, 201)})
     return {"ok": True, "results": results}
 
+async def _atualizar_imagens_bling(bling_id: str, urls: list, db: Session):
+    try:
+        headers = await bling_svc._get_headers(db)
+        async with httpx.AsyncClient(timeout=30) as client:
+            r = await client.get(f"https://www.bling.com.br/Api/v3/produtos/{bling_id}", headers=headers)
+            if r.status_code != 200:
+                logger.error(f"Bling GET produto {bling_id}: {r.status_code}")
+                return
+            prod = r.json().get("data", {})
+            externas_atuais = (prod.get("midia") or {}).get("imagens", {}).get("externas") or []
+            externas_novas = [e for e in externas_atuais if e.get("link")] + [{"link": u} for u in urls]
+            payload = {
+                "nome": prod.get("nome", ""),
+                "tipo": prod.get("tipo", "P"),
+                "situacao": prod.get("situacao", "A"),
+                "formato": prod.get("formato", "S"),
+                "preco": prod.get("preco", 0),
+                "unidade": "Un",
+                "condicao": 1,
+                "linhaProduto": {"id": (prod.get("linhaProduto") or {}).get("id", 1) or 1},
+                "midia": {"imagens": {"externas": externas_novas}},
+            }
+            if prod.get("formato") == "V":
+                variacoes_put = []
+                for v in (prod.get("variacoes") or []):
+                    v_put = {
+                        "nome": prod.get("nome", ""),
+                        "tipo": "P",
+                        "situacao": v.get("situacao", "A"),
+                        "formato": "S",
+                        "codigo": v.get("codigo", ""),
+                        "preco": v.get("preco", prod.get("preco", 0)),
+                    }
+                    variacao_sub = v.get("variacao") or {}
+                    vnome = variacao_sub.get("nome") or ""
+                    if not vnome:
+                        vnome = v.get("nome", "").replace(prod.get("nome", "") + " ", "", 1)
+                    if vnome:
+                        v_put["variacao"] = {"nome": vnome}
+                    if v.get("gtin"):
+                        v_put["gtin"] = v["gtin"]
+                        v_put["gtinEmbalagem"] = v["gtin"]
+                    variacoes_put.append(v_put)
+                if variacoes_put:
+                    payload["variacoes"] = variacoes_put
+            put_r = await client.put(
+                f"https://www.bling.com.br/Api/v3/produtos/{bling_id}",
+                headers={**headers, "Content-Type": "application/json"},
+                json=payload,
+            )
+            if put_r.status_code == 200:
+                logger.info(f"Imagens do produto {bling_id} atualizadas no Bling")
+            else:
+                logger.error(f"Bling PUT imagens {bling_id}: {put_r.status_code} - {put_r.text[:200]}")
+    except Exception as e:
+        logger.error(f"_atualizar_imagens_bling: {e}")
+
+
 @app.post("/api/gerar-imagens-modelo")
 async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
     if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
@@ -474,6 +532,9 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
                 logger.error(f"Erro imagem modelo {tamanho}: {e}")
                 resultados.append({"tamanho": tamanho, "tipo": tipo, "ok": False, "error": str(e)})
     db.commit()
+    urls_ok = [r["url"] for r in resultados if r.get("ok") and r.get("url")]
+    if bling_id and urls_ok:
+        await _atualizar_imagens_bling(bling_id, urls_ok, db)
     return {"ok": True, "resultados": resultados}
 
 @app.get("/health")

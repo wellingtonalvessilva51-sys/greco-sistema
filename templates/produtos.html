@@ -80,7 +80,12 @@ a{color:#c9a84c;text-decoration:none;}
         <div class="card-nome" title="{{ p.nome }}">{{ p.nome }}</div>
         <div class="card-sku">{{ p.sku }}</div>
         <div class="card-info">
-          <span class="card-preco">R$ {{ "%.2f"|format(p.preco_venda) }}</span>
+          <div>
+            <span class="card-preco">R$ {{ "%.2f"|format(p.preco_venda) }}</span>
+            {% if p.preco_custo and p.preco_custo > 0 %}
+            <div style="font-size:11px;color:#6b6455;margin-top:2px;">Custo: R$ {{ "%.2f"|format(p.preco_custo) }}</div>
+            {% endif %}
+          </div>
           <span class="card-estoque">Estoque: {{ p.estoque_inicial }}</span>
         </div>
         <div>
