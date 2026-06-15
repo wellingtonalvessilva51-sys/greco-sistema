@@ -332,6 +332,7 @@ async def api_cadastrar_produto(
     estoque_variacoes: str = Form("{}"),
     nome_produto: str = Form(""),
     preco_venda: str = Form(""),
+    sugestao_look: str = Form(""),
     db: Session = Depends(get_db)
 ):
     user = get_user(request, db)
@@ -368,7 +369,8 @@ async def api_cadastrar_produto(
         "cores": cores_list,
         "estoque_variacoes": estoque_var_dict,
         "nome_produto": nome_produto.strip() if nome_produto else "",
-        "preco_venda_manual": float(preco_venda) if preco_venda else 0
+        "preco_venda_manual": float(preco_venda) if preco_venda else 0,
+        "sugestao_look": sugestao_look.strip() if sugestao_look else ""
     }
     try:
         async with httpx.AsyncClient(timeout=90) as client:

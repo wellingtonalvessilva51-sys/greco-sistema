@@ -179,6 +179,16 @@ input:focus{outline:none;border-color:#c9a84c;}
     <div class="estoque-grid" id="estoque_grid"></div>
   </div>
 
+  <div class="card">
+    <div class="card-title">📸 Sugestão de Look para a IA <span style="color:#6b6455;font-weight:400;">(opcional)</span></div>
+    <div class="form-group" style="margin-bottom:0;">
+      <label>Descreva o look ou combine com outros produtos</label>
+      <textarea id="sugestao_look" rows="3" placeholder="Ex: usar com calça jeans escura e tênis branco&#10;Ex: combinar com a blusa listrada e o cardigan bege&#10;Se vazio, a IA decide o look completa automaticamente"
+        style="width:100%;background:#222018;border:1px solid #2e2b24;border-radius:8px;padding:12px;color:#f0ece3;font-size:14px;resize:vertical;font-family:inherit;"></textarea>
+      <div style="font-size:11px;color:#6b6455;margin-top:6px;">Quanto mais específico, mais fiel será a imagem gerada.</div>
+    </div>
+  </div>
+
   <div class="submit-area">
     <button class="btn btn-full" id="btn_cadastrar" onclick="cadastrar()">
       <span id="btn_text">Cadastrar Produto com IA</span>
@@ -325,6 +335,8 @@ async function cadastrar() {
   form.append('estoque_variacoes', JSON.stringify(estoqueVar));
   if (nomeProduto) form.append('nome_produto', nomeProduto);
   if (precoVenda) form.append('preco_venda', precoVenda);
+  const sugestaoLook = document.getElementById('sugestao_look').value.trim();
+  if (sugestaoLook) form.append('sugestao_look', sugestaoLook);
 
   try {
     const resp = await fetch('/api/cadastrar-produto', { method: 'POST', body: form });
