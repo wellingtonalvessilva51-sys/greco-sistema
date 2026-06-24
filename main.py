@@ -539,6 +539,42 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
         await _atualizar_imagens_bling(bling_id, urls_ok, db)
     return {"ok": True, "resultados": resultados}
 
+@app.get("/api/bling/contatos")
+async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "", db: Session = Depends(get_db)):
+    try:
+        headers = await bling_svc._get_headers(db)
+        params: dict = {"pagina": pagina, "limite": limite}
+        if pesquisa:
+            params["pesquisa"] = pesquisa
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers, params=params)
+        if resp.status_code != 200:
+            return {"error": f"Bling retornou {resp.status_code}", "detail": resp.text}
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/bling/vendas")
+async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
+    try:
+        headers = await bling_svc._get_headers(db)
+        params: dict = {"pagina": pagina, "limite": limite}
+        if contato:
+            params["contato[nome]"] = contato
+        if vendedor:
+            params["vendedor[nome]"] = vendedor
+        if dataInicial:
+            params["dataInicial"] = dataInicial
+        if dataFinal:
+            params["dataFinal"] = dataFinal
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas", headers=headers, params=params)
+        if resp.status_code != 200:
+            return {"error": f"Bling retornou {resp.status_code}", "detail": resp.text}
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
