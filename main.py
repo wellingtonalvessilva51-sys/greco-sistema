@@ -554,6 +554,11 @@ async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "",
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/vendedoras")
+async def api_vendedoras(db: Session = Depends(get_db)):
+    rows = db.query(Vendedora).filter(Vendedora.ativa == True).order_by(Vendedora.nome).all()
+    return [{"id": v.id, "nome": v.nome, "bling_nome": v.bling_vendedor_nome or v.nome} for v in rows]
+
 @app.get("/api/bling/vendas")
 async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
     try:
