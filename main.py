@@ -568,22 +568,28 @@ async def api_vendedoras(db: Session = Depends(get_db)):
 
 @app.get("/api/bling/vendedores")
 async def api_bling_vendedores(db: Session = Depends(get_db)):
-    """Retorna nomes únicos de vendedoras a partir das vendas já sincronizadas do Bling."""
-    rows = db.query(Venda.vendedora_nome).filter(
-        Venda.vendedora_nome != "",
-        Venda.vendedora_nome != "Sem vendedor",
-        Venda.vendedora_nome.isnot(None)
-    ).distinct().order_by(Venda.vendedora_nome).all()
-    return [r[0] for r in rows]
+    """Retorna lista de vendedores cadastrados no Bling com id e nome."""
+    try:
+        headers = await bling_svc._get_headers(db)
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.get(f"{bling_svc.BLING_BASE_URL}/vendedores", headers=headers)
+        if resp.status_code != 200:
+            return []
+        data = resp.json().get("data", [])
+        return [{"id": v["id"], "nome": (v.get("contato") or {}).get("nome", "")} for v in data if (v.get("contato") or {}).get("nome")]
+    except Exception:
+        return []
 
 @app.get("/api/bling/vendas")
-async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
+async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
     try:
         headers = await bling_svc._get_headers(db)
         params: dict = {"pagina": pagina, "limite": limite}
         if contato:
             params["contato[nome]"] = contato
-        if vendedor:
+        if vendedorId:
+            params["vendedor[id]"] = vendedorId
+        elif vendedor:
             params["vendedor[nome]"] = vendedor
         if dataInicial:
             params["dataInicial"] = dataInicial
