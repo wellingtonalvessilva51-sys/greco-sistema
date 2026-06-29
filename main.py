@@ -580,6 +580,45 @@ async def api_bling_vendedores(db: Session = Depends(get_db)):
     except Exception:
         return []
 
+@app.get("/api/bling/vendas/total")
+async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
+    """Soma todos os pedidos do filtro (percorre todas as páginas) e retorna totalValor e totalPedidos."""
+    try:
+        headers = await bling_svc._get_headers(db)
+        params_base: dict = {"limite": 100}
+        if contato:     params_base["contato[nome]"] = contato
+        if vendedorId:  params_base["vendedor[id]"] = vendedorId
+        if lojaId:      params_base["loja[id]"] = lojaId
+        if dataInicial: params_base["dataInicial"] = dataInicial
+        if dataFinal:   params_base["dataFinal"] = dataFinal
+
+        total_valor = 0.0
+        total_pedidos = 0
+        pagina = 1
+        async with httpx.AsyncClient(timeout=60) as client:
+            while pagina <= 50:
+                resp = await client.get(
+                    f"{bling_svc.BLING_BASE_URL}/pedidos/vendas",
+                    headers=headers,
+                    params={**params_base, "pagina": pagina}
+                )
+                if resp.status_code != 200:
+                    break
+                data = resp.json()
+                pedidos = data.get("data", [])
+                if not pedidos:
+                    break
+                for p in pedidos:
+                    total_valor += float(p.get("total") or p.get("totalVenda") or 0)
+                meta = data.get("meta", {})
+                total_pedidos = meta.get("total", total_pedidos)
+                if pagina >= meta.get("totalPages", 1):
+                    break
+                pagina += 1
+        return {"totalValor": round(total_valor, 2), "totalPedidos": total_pedidos}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/bling/vendas")
 async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
     try:
