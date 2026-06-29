@@ -547,12 +547,13 @@ async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
     return {"ok": True, "resultados": resultados}
 
 @app.get("/api/bling/contatos")
-async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "", db: Session = Depends(get_db)):
+async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "", tipo: str = "", situacao: str = "", db: Session = Depends(get_db)):
     try:
         headers = await bling_svc._get_headers(db)
         params: dict = {"pagina": pagina, "limite": limite}
-        if pesquisa:
-            params["pesquisa"] = pesquisa
+        if pesquisa:  params["pesquisa"]  = pesquisa
+        if tipo:      params["tipo[id]"]  = tipo       # F = Física, J = Jurídica
+        if situacao:  params["situacao"]  = situacao   # A = Ativo, I = Inativo
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers, params=params)
         if resp.status_code != 200:
