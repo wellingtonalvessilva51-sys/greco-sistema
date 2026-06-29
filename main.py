@@ -552,7 +552,7 @@ async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "",
         headers = await bling_svc._get_headers(db)
         params: dict = {"pagina": pagina, "limite": limite}
         if pesquisa:  params["pesquisa"]  = pesquisa
-        if tipo:      params["tipo[id]"]  = tipo       # F = Física, J = Jurídica
+        if tipo:      params["tipoPessoa"] = tipo        # F = Física, J = Jurídica
         if situacao:  params["situacao"]  = situacao   # A = Ativo, I = Inativo
         async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers, params=params)
@@ -654,6 +654,10 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
                 if not pedidos:
                     break
                 for p in pedidos:
+                    sit = p.get("situacao", {})
+                    sit_id = sit.get("id") if isinstance(sit, dict) else sit
+                    if sit_id in (12, 24):  # Cancelado, Devolvido
+                        continue
                     total_valor += float(p.get("total") or p.get("totalVenda") or 0)
                 total_pedidos += len(pedidos)
                 # Bling não retorna meta.totalPages — paramos quando a página vem incompleta
