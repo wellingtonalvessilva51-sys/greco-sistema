@@ -585,8 +585,8 @@ async def api_bling_vendedores(db: Session = Depends(get_db)):
 async def api_bling_lojas(db: Session = Depends(get_db)):
     """Retorna todas as lojas conhecidas + novas descobertas nos pedidos recentes."""
     NOMES_CONHECIDOS = {
-        205836734: "Taboão",
-        204510878: "Campo Limpo",
+        204510878: "Taboão",
+        205836734: "Campo Limpo",
         204889853: "Gibran",
         204494144: "Mercado Livre",
         204993060: "Site Nuvemshop",
