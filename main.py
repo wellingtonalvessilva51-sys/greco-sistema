@@ -585,10 +585,11 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
     """Soma todos os pedidos do filtro (percorre todas as páginas) e retorna totalValor e totalPedidos."""
     try:
         headers = await bling_svc._get_headers(db)
-        params_base: dict = {"limite": 100}
+        limite = 100
+        params_base: dict = {"limite": limite}
         if contato:     params_base["contato[nome]"] = contato
-        if vendedorId:  params_base["vendedor[id]"] = vendedorId
-        if lojaId:      params_base["loja[id]"] = lojaId
+        if vendedorId:  params_base["idVendedor"] = vendedorId
+        if lojaId:      params_base["idLoja"] = lojaId
         if dataInicial: params_base["dataInicial"] = dataInicial
         if dataFinal:   params_base["dataFinal"] = dataFinal
 
@@ -610,9 +611,9 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
                     break
                 for p in pedidos:
                     total_valor += float(p.get("total") or p.get("totalVenda") or 0)
-                meta = data.get("meta", {})
-                total_pedidos = meta.get("total", total_pedidos)
-                if pagina >= meta.get("totalPages", 1):
+                total_pedidos += len(pedidos)
+                # Bling não retorna meta.totalPages — paramos quando a página vem incompleta
+                if len(pedidos) < limite:
                     break
                 pagina += 1
         return {"totalValor": round(total_valor, 2), "totalPedidos": total_pedidos}
@@ -627,11 +628,11 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
         if contato:
             params["contato[nome]"] = contato
         if vendedorId:
-            params["vendedor[id]"] = vendedorId
+            params["idVendedor"] = vendedorId
         elif vendedor:
-            params["vendedor[nome]"] = vendedor
+            params["idVendedor"] = vendedor
         if lojaId:
-            params["loja[id]"] = lojaId
+            params["idLoja"] = lojaId
         if dataInicial:
             params["dataInicial"] = dataInicial
         if dataFinal:

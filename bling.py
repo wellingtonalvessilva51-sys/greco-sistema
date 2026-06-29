@@ -85,7 +85,8 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
                 r = _processar_pedido(pedido, db)
                 if r == "novo": novos += 1
                 elif r == "atualizado": atualizados += 1
-            if pagina >= data.get("meta", {}).get("totalPages", 1):
+            # Bling não retorna meta.totalPages — paramos quando a página vem incompleta
+            if len(pedidos) < 100:
                 break
             pagina += 1
     db.commit()
