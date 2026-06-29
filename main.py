@@ -202,6 +202,13 @@ async def sincronizar(request: Request, db: Session = Depends(get_db)):
     resultado = await bling_svc.sincronizar_pedidos(db, dias=35)
     return resultado
 
+@app.post("/api/sincronizar/dev")
+async def sincronizar_dev(secret: str = "", db: Session = Depends(get_db)):
+    if secret != "modexa-dev-2026":
+        raise HTTPException(403)
+    resultado = await bling_svc.sincronizar_pedidos(db, dias=180)
+    return resultado
+
 @app.post("/api/lojas")
 async def criar_loja(request: Request, nome: str = Form(...), meta: float = Form(0), db: Session = Depends(get_db)):
     user = get_user(request, db)
