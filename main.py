@@ -582,7 +582,7 @@ async def api_bling_vendedores(db: Session = Depends(get_db)):
 
 @app.get("/api/bling/lojas")
 async def api_bling_lojas(db: Session = Depends(get_db)):
-    """Retorna lojas únicas encontradas nos pedidos dos últimos 60 dias."""
+    """Retorna todas as lojas conhecidas + novas descobertas nos pedidos recentes."""
     NOMES_CONHECIDOS = {
         205836734: "Taboão",
         204510878: "Campo Limpo",
@@ -594,9 +594,10 @@ async def api_bling_lojas(db: Session = Depends(get_db)):
         headers = await bling_svc._get_headers(db)
         from datetime import date, timedelta
         data_ini = (date.today() - timedelta(days=60)).isoformat()
-        lojas: dict = {}
+        # começa com todas as lojas conhecidas
+        lojas: dict = dict(NOMES_CONHECIDOS)
         async with httpx.AsyncClient(timeout=15) as client:
-            for pg in range(1, 4):  # 3 páginas = até 300 pedidos recentes
+            for pg in range(1, 4):
                 resp = await client.get(
                     f"{bling_svc.BLING_BASE_URL}/pedidos/vendas",
                     headers=headers,
@@ -610,10 +611,10 @@ async def api_bling_lojas(db: Session = Depends(get_db)):
                 for p in pedidos:
                     lid = (p.get("loja") or {}).get("id")
                     if lid and lid not in lojas:
-                        lojas[lid] = NOMES_CONHECIDOS.get(lid, f"Loja {lid}")
+                        lojas[lid] = f"Loja {lid}"
         return [{"id": k, "nome": v} for k, v in sorted(lojas.items(), key=lambda x: x[1])]
-    except Exception as e:
-        return [{"id": 205836734, "nome": "Taboão"}, {"id": 204510878, "nome": "Campo Limpo"}]
+    except Exception:
+        return [{"id": k, "nome": v} for k, v in NOMES_CONHECIDOS.items()]
 
 @app.get("/api/bling/vendas/total")
 async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
