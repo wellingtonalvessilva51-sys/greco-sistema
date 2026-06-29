@@ -561,37 +561,13 @@ async def api_vendedoras(db: Session = Depends(get_db)):
 
 @app.get("/api/bling/vendedores")
 async def api_bling_vendedores(db: Session = Depends(get_db)):
-    """Retorna lista de nomes de vendedores únicos extraídos dos pedidos do Bling (últimos 180 dias)."""
-    try:
-        headers = await bling_svc._get_headers(db)
-        from datetime import timedelta
-        data_inicio = (datetime.now() - timedelta(days=180)).strftime("%Y-%m-%d")
-        nomes = set()
-        async with httpx.AsyncClient(timeout=30) as client:
-            pagina = 1
-            while pagina <= 10:
-                resp = await client.get(
-                    f"{bling_svc.BLING_BASE_URL}/pedidos/vendas",
-                    headers=headers,
-                    params={"pagina": pagina, "limite": 100, "dataInicial": data_inicio}
-                )
-                if resp.status_code != 200:
-                    break
-                data = resp.json()
-                pedidos = data.get("data", [])
-                if not pedidos:
-                    break
-                for p in pedidos:
-                    nome = (p.get("vendedor") or {}).get("nome", "").strip()
-                    if nome:
-                        nomes.add(nome)
-                total_pages = data.get("meta", {}).get("totalPages", 1)
-                if pagina >= total_pages:
-                    break
-                pagina += 1
-        return sorted(nomes)
-    except Exception as e:
-        return []
+    """Retorna nomes únicos de vendedoras a partir das vendas já sincronizadas do Bling."""
+    rows = db.query(Venda.vendedora_nome).filter(
+        Venda.vendedora_nome != "",
+        Venda.vendedora_nome != "Sem vendedor",
+        Venda.vendedora_nome.isnot(None)
+    ).distinct().order_by(Venda.vendedora_nome).all()
+    return [r[0] for r in rows]
 
 @app.get("/api/bling/vendas")
 async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
