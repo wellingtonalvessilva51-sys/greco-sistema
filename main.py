@@ -586,6 +586,9 @@ async def api_bling_lojas(db: Session = Depends(get_db)):
     NOMES_CONHECIDOS = {
         205836734: "Taboão",
         204510878: "Campo Limpo",
+        204889853: "Gibran",
+        204494144: "Mercado Livre",
+        204993060: "Site Nuvemshop",
     }
     try:
         headers = await bling_svc._get_headers(db)
