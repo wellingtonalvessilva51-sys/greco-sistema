@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pathlib import Path
-import os, logging, uuid, hashlib, time
+import os, logging, uuid, hashlib, time, asyncio
 import httpx
 
 from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem
@@ -628,14 +628,21 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
         total_valor = 0.0
         total_pedidos = 0
         pagina = 1
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=30) as client:
             while pagina <= 50:
-                resp = await client.get(
-                    f"{bling_svc.BLING_BASE_URL}/pedidos/vendas",
-                    headers=headers,
-                    params={**params_base, "pagina": pagina}
-                )
-                if resp.status_code != 200:
+                tentativas = 0
+                resp = None
+                while tentativas < 3:
+                    resp = await client.get(
+                        f"{bling_svc.BLING_BASE_URL}/pedidos/vendas",
+                        headers=headers,
+                        params={**params_base, "pagina": pagina}
+                    )
+                    if resp.status_code == 200:
+                        break
+                    tentativas += 1
+                    await asyncio.sleep(1.0)  # aguarda 1s antes de retentar (rate limit)
+                if resp is None or resp.status_code != 200:
                     break
                 data = resp.json()
                 pedidos = data.get("data", [])
@@ -648,6 +655,7 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
                 if len(pedidos) < limite:
                     break
                 pagina += 1
+                await asyncio.sleep(0.3)  # pequena pausa para não acionar rate limit do Bling
         return {"totalValor": round(total_valor, 2), "totalPedidos": total_pedidos}
     except Exception as e:
         return {"error": str(e)}
