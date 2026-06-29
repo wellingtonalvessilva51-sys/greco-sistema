@@ -581,7 +581,7 @@ async def api_bling_vendedores(db: Session = Depends(get_db)):
         return []
 
 @app.get("/api/bling/vendas")
-async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
+async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
     try:
         headers = await bling_svc._get_headers(db)
         params: dict = {"pagina": pagina, "limite": limite}
@@ -591,6 +591,8 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
             params["vendedor[id]"] = vendedorId
         elif vendedor:
             params["vendedor[nome]"] = vendedor
+        if lojaId:
+            params["loja[id]"] = lojaId
         if dataInicial:
             params["dataInicial"] = dataInicial
         if dataFinal:
