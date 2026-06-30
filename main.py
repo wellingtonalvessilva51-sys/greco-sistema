@@ -669,6 +669,25 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
     except Exception as e:
         return {"error": str(e)}
 
+# Cache em memória para mapa id→nome de vendedores (TTL 1h)
+_vendor_name_cache: dict = {"_ts": 0.0}
+
+async def _get_vendor_name_map(headers: dict) -> dict:
+    now = time.time()
+    if now - _vendor_name_cache["_ts"] < 3600 and len(_vendor_name_cache) > 1:
+        return {k: v for k, v in _vendor_name_cache.items() if k != "_ts"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(f"{bling_svc.BLING_BASE_URL}/vendedores", headers=headers)
+        data = resp.json().get("data", [])
+        m = {v["id"]: (v.get("contato") or {}).get("nome", "") for v in data if (v.get("contato") or {}).get("nome")}
+        _vendor_name_cache.clear()
+        _vendor_name_cache.update(m)
+        _vendor_name_cache["_ts"] = now
+        return m
+    except Exception:
+        return {}
+
 @app.get("/api/bling/vendas")
 async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
     try:
@@ -690,7 +709,33 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
             resp = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas", headers=headers, params=params)
         if resp.status_code != 200:
             return {"error": f"Bling retornou {resp.status_code}", "detail": resp.text}
-        return resp.json()
+        data = resp.json()
+        pedidos = data.get("data", [])
+
+        # Enriquece cada pedido com nome da vendedora (busca individual concorrente)
+        if pedidos:
+            try:
+                vendor_map = await _get_vendor_name_map(headers)
+                sem = asyncio.Semaphore(5)
+                async def _fetch_vendor(client: httpx.AsyncClient, pid: int):
+                    async with sem:
+                        try:
+                            r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
+                            vid = (r.json().get("data", {}).get("vendedor") or {}).get("id")
+                            return pid, vendor_map.get(vid, "") if vid else ""
+                        except Exception:
+                            return pid, ""
+                async with httpx.AsyncClient(timeout=20) as client:
+                    resultados = await asyncio.gather(*[_fetch_vendor(client, p["id"]) for p in pedidos])
+                por_id = dict(resultados)
+                for p in pedidos:
+                    nome = por_id.get(p["id"], "")
+                    if nome:
+                        p["vendedor"] = {"nome": nome}
+            except Exception:
+                pass  # não quebra a resposta se enriquecimento falhar
+
+        return data
     except Exception as e:
         return {"error": str(e)}
 
