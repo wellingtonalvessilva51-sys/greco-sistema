@@ -767,6 +767,7 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                 pagina = 1
                 total_valor = 0.0
                 total_pedidos = 0
+                total_itens = 0.0
                 while True:
                     params: dict = {"pagina": pagina, "limite": 100, "idVendedor": vendor_id}
                     if dataInicial: params["dataInicial"] = dataInicial
@@ -784,6 +785,8 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                             continue
                         total_valor += float(p.get("total") or p.get("totalVenda") or 0)
                         total_pedidos += 1
+                        for item in (p.get("itens") or []):
+                            total_itens += float(item.get("quantidade") or 1)
                     if len(pedidos) < 100:
                         break
                     pagina += 1
@@ -794,7 +797,9 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                         "nome": vendor_nome,
                         "totalValor": round(total_valor, 2),
                         "totalPedidos": total_pedidos,
+                        "totalItens": int(total_itens),
                         "ticketMedio": round(total_valor / total_pedidos, 2),
+                        "pa": round(total_itens / total_pedidos, 2),
                     })
                 await asyncio.sleep(0.3)  # pausa entre vendedoras
 
