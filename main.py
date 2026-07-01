@@ -753,6 +753,56 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/ranking-vendedoras")
+async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", lojaId: str = "", db: Session = Depends(get_db)):
+    try:
+        headers = await bling_svc._get_headers(db)
+        vendor_map = await _get_vendor_name_map(headers)
+        if not vendor_map:
+            return []
+
+        ranking = []
+        async with httpx.AsyncClient(timeout=15) as client:
+            for vendor_id, vendor_nome in vendor_map.items():
+                pagina = 1
+                total_valor = 0.0
+                total_pedidos = 0
+                while True:
+                    params: dict = {"pagina": pagina, "limite": 100, "idVendedor": vendor_id}
+                    if dataInicial: params["dataInicial"] = dataInicial
+                    if dataFinal:   params["dataFinal"]   = dataFinal
+                    if lojaId:      params["idLoja"]      = lojaId
+                    try:
+                        r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas", headers=headers, params=params)
+                        pedidos = r.json().get("data", []) if r.status_code == 200 else []
+                    except Exception:
+                        break
+                    for p in pedidos:
+                        sit = p.get("situacao") or {}
+                        sit_id = sit.get("id") if isinstance(sit, dict) else sit
+                        if sit_id in (12, 24):
+                            continue
+                        total_valor += float(p.get("total") or p.get("totalVenda") or 0)
+                        total_pedidos += 1
+                    if len(pedidos) < 100:
+                        break
+                    pagina += 1
+                    await asyncio.sleep(0.3)
+                if total_pedidos > 0:
+                    ranking.append({
+                        "id": vendor_id,
+                        "nome": vendor_nome,
+                        "totalValor": round(total_valor, 2),
+                        "totalPedidos": total_pedidos,
+                        "ticketMedio": round(total_valor / total_pedidos, 2),
+                    })
+                await asyncio.sleep(0.3)  # pausa entre vendedoras
+
+        ranking.sort(key=lambda x: x["totalValor"], reverse=True)
+        return ranking
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
