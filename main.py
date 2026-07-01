@@ -673,20 +673,26 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
 _vendor_name_cache: dict = {"_ts": 0.0}
 # Cache id_pedido → id_vendedor (None = sem vendedor, ausente = ainda não buscado)
 _order_vendor_cache: dict = {}
+# Cache id_pedido → total de itens (peças) do pedido individual
+_order_items_cache: dict = {}
 
 async def _warm_vendor_cache_bg(pids: list, headers: dict):
-    """Busca vendor_id de pedidos não cacheados em background, respeitando rate limit do Bling."""
+    """Busca vendor_id e item counts de pedidos não cacheados em background, respeitando rate limit do Bling."""
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             for pid in pids:
-                if pid in _order_vendor_cache:
+                if pid in _order_vendor_cache and pid in _order_items_cache:
                     continue
                 try:
                     r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
-                    vid = (r.json().get("data", {}).get("vendedor") or {}).get("id")
+                    data = r.json().get("data", {})
+                    vid = (data.get("vendedor") or {}).get("id")
                     _order_vendor_cache[pid] = vid
+                    itens = data.get("itens") or []
+                    _order_items_cache[pid] = sum(float(it.get("quantidade") or 0) for it in itens)
                 except Exception:
                     _order_vendor_cache[pid] = None
+                    _order_items_cache[pid] = 0
                 await asyncio.sleep(0.35)
     except Exception:
         pass
@@ -754,7 +760,7 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
         return {"error": str(e)}
 
 @app.get("/api/bling/ranking-vendedoras")
-async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", lojaId: str = "", db: Session = Depends(get_db)):
+async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", lojaId: str = "", background_tasks: BackgroundTasks = None, db: Session = Depends(get_db)):
     try:
         headers = await bling_svc._get_headers(db)
         vendor_map = await _get_vendor_name_map(headers)
@@ -762,6 +768,7 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
             return []
 
         ranking = []
+        all_order_ids: list = []
         async with httpx.AsyncClient(timeout=15) as client:
             for vendor_id, vendor_nome in vendor_map.items():
                 pagina = 1
@@ -783,10 +790,12 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                         sit_id = sit.get("id") if isinstance(sit, dict) else sit
                         if sit_id in (12, 24):
                             continue
+                        pid = p["id"]
                         total_valor += float(p.get("total") or p.get("totalVenda") or 0)
                         total_pedidos += 1
-                        for item in (p.get("itens") or []):
-                            total_itens += float(item.get("quantidade") or 1)
+                        all_order_ids.append(pid)
+                        if pid in _order_items_cache:
+                            total_itens += _order_items_cache[pid]
                     if len(pedidos) < 100:
                         break
                     pagina += 1
@@ -799,9 +808,14 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                         "totalPedidos": total_pedidos,
                         "totalItens": int(total_itens),
                         "ticketMedio": round(total_valor / total_pedidos, 2),
-                        "pa": round(total_itens / total_pedidos, 2),
+                        "pa": round(total_itens / total_pedidos, 2) if total_itens > 0 else None,
                     })
-                await asyncio.sleep(0.3)  # pausa entre vendedoras
+                await asyncio.sleep(0.3)
+
+        # Background: busca individual para popular _order_items_cache (PA disponível na próxima carga)
+        uncached_ids = [pid for pid in all_order_ids if pid not in _order_items_cache]
+        if uncached_ids and background_tasks is not None:
+            background_tasks.add_task(_warm_vendor_cache_bg, uncached_ids, headers)
 
         ranking.sort(key=lambda x: x["totalValor"], reverse=True)
         return ranking
