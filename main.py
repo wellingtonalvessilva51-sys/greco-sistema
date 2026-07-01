@@ -671,6 +671,8 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
 
 # Cache em memória para mapa id→nome de vendedores (TTL 1h)
 _vendor_name_cache: dict = {"_ts": 0.0}
+# Cache id_pedido → id_vendedor para evitar re-fetch de pedidos já consultados
+_order_vendor_cache: dict = {}
 
 async def _get_vendor_name_map(headers: dict) -> dict:
     now = time.time()
@@ -712,24 +714,24 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
         data = resp.json()
         pedidos = data.get("data", [])
 
-        # Enriquece cada pedido com nome da vendedora (busca individual concorrente)
+        # Enriquece cada pedido com nome da vendedora (sequencial para respeitar rate limit do Bling ~3 req/s)
         if pedidos:
             try:
                 vendor_map = await _get_vendor_name_map(headers)
-                sem = asyncio.Semaphore(5)
-                async def _fetch_vendor(client: httpx.AsyncClient, pid: int):
-                    async with sem:
+                # Identifica pedidos cujo vendor_id ainda não está no cache
+                ids_sem_cache = [p["id"] for p in pedidos if p["id"] not in _order_vendor_cache]
+                async with httpx.AsyncClient(timeout=20) as client:
+                    for pid in ids_sem_cache:
                         try:
                             r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
                             vid = (r.json().get("data", {}).get("vendedor") or {}).get("id")
-                            return pid, vendor_map.get(vid, "") if vid else ""
+                            _order_vendor_cache[pid] = vid
                         except Exception:
-                            return pid, ""
-                async with httpx.AsyncClient(timeout=20) as client:
-                    resultados = await asyncio.gather(*[_fetch_vendor(client, p["id"]) for p in pedidos])
-                por_id = dict(resultados)
+                            _order_vendor_cache[pid] = None
+                        await asyncio.sleep(0.35)  # ~2.8 req/s — dentro do limite do Bling
                 for p in pedidos:
-                    nome = por_id.get(p["id"], "")
+                    vid = _order_vendor_cache.get(p["id"])
+                    nome = vendor_map.get(vid, "") if vid else ""
                     if nome:
                         p["vendedor"] = {"nome": nome}
             except Exception:
