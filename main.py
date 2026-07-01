@@ -11,7 +11,7 @@ from pathlib import Path
 import os, logging, uuid, hashlib, time, asyncio
 import httpx
 
-from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem
+from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
 import bling as bling_svc
 
@@ -28,10 +28,25 @@ async def job_sincronizar():
     finally:
         db.close()
 
+def _load_vendor_cache_from_db():
+    """Carrega cache de vendedores e itens do Postgres na inicialização."""
+    try:
+        db = SessionLocal()
+        entries = db.query(PedidoVendedorCache).all()
+        for e in entries:
+            _order_vendor_cache[e.pedido_id] = e.vendor_id
+            if e.total_itens is not None:
+                _order_items_cache[e.pedido_id] = e.total_itens
+        db.close()
+        logger.info(f"Cache de vendedores carregado: {len(entries)} pedidos do banco")
+    except Exception as ex:
+        logger.warning(f"Não foi possível carregar cache de vendedores: {ex}")
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     criar_tabelas()
     _setup_inicial()
+    _load_vendor_cache_from_db()
     scheduler.add_job(job_sincronizar, "interval", hours=1)
     scheduler.start()
     yield
@@ -677,22 +692,38 @@ _order_vendor_cache: dict = {}
 _order_items_cache: dict = {}
 
 async def _warm_vendor_cache_bg(pids: list, headers: dict):
-    """Busca vendor_id e item counts de pedidos não cacheados em background, respeitando rate limit do Bling."""
+    """Busca vendor_id e item counts em background; persiste no Postgres para sobreviver restarts."""
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             for pid in pids:
                 if pid in _order_vendor_cache and pid in _order_items_cache:
                     continue
+                vid = None
+                total_itens = 0.0
                 try:
                     r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
                     data = r.json().get("data", {})
                     vid = (data.get("vendedor") or {}).get("id")
-                    _order_vendor_cache[pid] = vid
                     itens = data.get("itens") or []
-                    _order_items_cache[pid] = sum(float(it.get("quantidade") or 0) for it in itens)
+                    total_itens = sum(float(it.get("quantidade") or 0) for it in itens)
                 except Exception:
-                    _order_vendor_cache[pid] = None
-                    _order_items_cache[pid] = 0
+                    pass
+                _order_vendor_cache[pid] = vid
+                _order_items_cache[pid] = total_itens
+                # Persiste no banco
+                try:
+                    db = SessionLocal()
+                    entry = db.query(PedidoVendedorCache).filter(PedidoVendedorCache.pedido_id == pid).first()
+                    if entry:
+                        entry.vendor_id = vid
+                        entry.total_itens = total_itens
+                        entry.cached_at = datetime.utcnow()
+                    else:
+                        db.add(PedidoVendedorCache(pedido_id=pid, vendor_id=vid, total_itens=total_itens))
+                    db.commit()
+                    db.close()
+                except Exception:
+                    pass
                 await asyncio.sleep(0.35)
     except Exception:
         pass
@@ -815,17 +846,34 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                 if pid not in _order_items_cache:
                     sample_fetch.append(pid)
 
+        db_rank = SessionLocal()
         async with httpx.AsyncClient(timeout=10) as client:
             for pid in sample_fetch:
                 if pid in _order_items_cache:
                     continue
+                vid = None
+                total_itens = 0.0
                 try:
                     r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
-                    itens = r.json().get("data", {}).get("itens") or []
-                    _order_items_cache[pid] = sum(float(it.get("quantidade") or 0) for it in itens)
+                    data = r.json().get("data", {})
+                    vid = (data.get("vendedor") or {}).get("id")
+                    itens = data.get("itens") or []
+                    total_itens = sum(float(it.get("quantidade") or 0) for it in itens)
                 except Exception:
-                    _order_items_cache[pid] = 0
+                    pass
+                _order_vendor_cache[pid] = vid
+                _order_items_cache[pid] = total_itens
+                try:
+                    entry = db_rank.query(PedidoVendedorCache).filter(PedidoVendedorCache.pedido_id == pid).first()
+                    if entry:
+                        entry.vendor_id = vid; entry.total_itens = total_itens; entry.cached_at = datetime.utcnow()
+                    else:
+                        db_rank.add(PedidoVendedorCache(pedido_id=pid, vendor_id=vid, total_itens=total_itens))
+                    db_rank.commit()
+                except Exception:
+                    db_rank.rollback()
                 await asyncio.sleep(0.35)
+        db_rank.close()
 
         # Fase 3: monta ranking com PA estimado da amostra
         ranking = []

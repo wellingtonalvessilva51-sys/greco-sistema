@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, text
+from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, text, BigInteger
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime
@@ -90,6 +90,13 @@ class ModeloImagem(Base):
     prompt_usado = Column(Text, default="")
     criado_em = Column(DateTime, default=datetime.utcnow)
     produto = relationship("Produto", back_populates="imagens_modelos")
+
+class PedidoVendedorCache(Base):
+    __tablename__ = "pedido_vendedor_cache"
+    pedido_id  = Column(BigInteger, primary_key=True)
+    vendor_id  = Column(BigInteger, nullable=True)   # None = pedido sem vendedor
+    total_itens = Column(Float, nullable=True)        # soma das quantidades dos itens
+    cached_at  = Column(DateTime, default=datetime.utcnow)
 
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
