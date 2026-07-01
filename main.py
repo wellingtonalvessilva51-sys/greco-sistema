@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File
+from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -671,8 +671,25 @@ async def bling_vendas_total(contato: str = "", vendedorId: str = "", lojaId: st
 
 # Cache em memória para mapa id→nome de vendedores (TTL 1h)
 _vendor_name_cache: dict = {"_ts": 0.0}
-# Cache id_pedido → id_vendedor para evitar re-fetch de pedidos já consultados
+# Cache id_pedido → id_vendedor (None = sem vendedor, ausente = ainda não buscado)
 _order_vendor_cache: dict = {}
+
+async def _warm_vendor_cache_bg(pids: list, headers: dict):
+    """Busca vendor_id de pedidos não cacheados em background, respeitando rate limit do Bling."""
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            for pid in pids:
+                if pid in _order_vendor_cache:
+                    continue
+                try:
+                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
+                    vid = (r.json().get("data", {}).get("vendedor") or {}).get("id")
+                    _order_vendor_cache[pid] = vid
+                except Exception:
+                    _order_vendor_cache[pid] = None
+                await asyncio.sleep(0.35)
+    except Exception:
+        pass
 
 async def _get_vendor_name_map(headers: dict) -> dict:
     now = time.time()
@@ -691,7 +708,7 @@ async def _get_vendor_name_map(headers: dict) -> dict:
         return {}
 
 @app.get("/api/bling/vendas")
-async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", db: Session = Depends(get_db)):
+async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", vendedor: str = "", vendedorId: str = "", lojaId: str = "", dataInicial: str = "", dataFinal: str = "", background_tasks: BackgroundTasks = None, db: Session = Depends(get_db)):
     try:
         headers = await bling_svc._get_headers(db)
         params: dict = {"pagina": pagina, "limite": limite}
@@ -714,28 +731,23 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
         data = resp.json()
         pedidos = data.get("data", [])
 
-        # Enriquece cada pedido com nome da vendedora (sequencial para respeitar rate limit do Bling ~3 req/s)
+        # Enriquece pedidos com nome da vendedora — usa cache imediatamente, busca resto em background
         if pedidos:
             try:
                 vendor_map = await _get_vendor_name_map(headers)
-                # Identifica pedidos cujo vendor_id ainda não está no cache
-                ids_sem_cache = [p["id"] for p in pedidos if p["id"] not in _order_vendor_cache]
-                async with httpx.AsyncClient(timeout=20) as client:
-                    for pid in ids_sem_cache:
-                        try:
-                            r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
-                            vid = (r.json().get("data", {}).get("vendedor") or {}).get("id")
-                            _order_vendor_cache[pid] = vid
-                        except Exception:
-                            _order_vendor_cache[pid] = None
-                        await asyncio.sleep(0.35)  # ~2.8 req/s — dentro do limite do Bling
+                # Aplica cache existente já nesta resposta
                 for p in pedidos:
-                    vid = _order_vendor_cache.get(p["id"])
-                    nome = vendor_map.get(vid, "") if vid else ""
-                    if nome:
-                        p["vendedor"] = {"nome": nome}
+                    if p["id"] in _order_vendor_cache:
+                        vid = _order_vendor_cache[p["id"]]
+                        nome = vendor_map.get(vid, "") if vid else ""
+                        if nome:
+                            p["vendedor"] = {"nome": nome}
+                # Agenda busca dos não cacheados em background (próxima carga terá os nomes)
+                ids_sem_cache = [p["id"] for p in pedidos if p["id"] not in _order_vendor_cache]
+                if ids_sem_cache and background_tasks is not None:
+                    background_tasks.add_task(_warm_vendor_cache_bg, ids_sem_cache, headers)
             except Exception:
-                pass  # não quebra a resposta se enriquecimento falhar
+                pass
 
         return data
     except Exception as e:
