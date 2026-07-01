@@ -767,14 +767,15 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
         if not vendor_map:
             return []
 
-        ranking = []
-        all_order_ids: list = []
+        # Fase 1: busca listas de pedidos por vendedora (valor, pedidos, IDs)
+        PA_SAMPLE = 5  # pedidos individuais por vendedora para estimar PA
+        vendor_buckets: dict = {}  # vendor_id -> {nome, totalValor, totalPedidos, ticketMedio, order_ids}
         async with httpx.AsyncClient(timeout=15) as client:
             for vendor_id, vendor_nome in vendor_map.items():
                 pagina = 1
                 total_valor = 0.0
                 total_pedidos = 0
-                total_itens = 0.0
+                order_ids: list = []
                 while True:
                     params: dict = {"pagina": pagina, "limite": 100, "idVendedor": vendor_id}
                     if dataInicial: params["dataInicial"] = dataInicial
@@ -790,32 +791,72 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
                         sit_id = sit.get("id") if isinstance(sit, dict) else sit
                         if sit_id in (12, 24):
                             continue
-                        pid = p["id"]
                         total_valor += float(p.get("total") or p.get("totalVenda") or 0)
                         total_pedidos += 1
-                        all_order_ids.append(pid)
-                        if pid in _order_items_cache:
-                            total_itens += _order_items_cache[pid]
+                        order_ids.append(p["id"])
                     if len(pedidos) < 100:
                         break
                     pagina += 1
                     await asyncio.sleep(0.3)
                 if total_pedidos > 0:
-                    ranking.append({
-                        "id": vendor_id,
+                    vendor_buckets[vendor_id] = {
                         "nome": vendor_nome,
                         "totalValor": round(total_valor, 2),
                         "totalPedidos": total_pedidos,
-                        "totalItens": int(total_itens),
                         "ticketMedio": round(total_valor / total_pedidos, 2),
-                        "pa": round(total_itens / total_pedidos, 2) if total_itens > 0 else None,
-                    })
+                        "order_ids": order_ids,
+                    }
                 await asyncio.sleep(0.3)
 
-        # Background: busca individual para popular _order_items_cache (PA disponível na próxima carga)
-        uncached_ids = [pid for pid in all_order_ids if pid not in _order_items_cache]
-        if uncached_ids and background_tasks is not None:
-            background_tasks.add_task(_warm_vendor_cache_bg, uncached_ids, headers)
+        # Fase 2: busca síncrona de amostra de PA_SAMPLE pedidos por vendedora
+        sample_fetch = []
+        for vb in vendor_buckets.values():
+            for pid in vb["order_ids"][:PA_SAMPLE]:
+                if pid not in _order_items_cache:
+                    sample_fetch.append(pid)
+
+        async with httpx.AsyncClient(timeout=10) as client:
+            for pid in sample_fetch:
+                if pid in _order_items_cache:
+                    continue
+                try:
+                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{pid}", headers=headers)
+                    itens = r.json().get("data", {}).get("itens") or []
+                    _order_items_cache[pid] = sum(float(it.get("quantidade") or 0) for it in itens)
+                except Exception:
+                    _order_items_cache[pid] = 0
+                await asyncio.sleep(0.35)
+
+        # Fase 3: monta ranking com PA estimado da amostra
+        ranking = []
+        remaining_ids: list = []
+        for vendor_id, vb in vendor_buckets.items():
+            sample_pids = vb["order_ids"][:PA_SAMPLE]
+            cached = [pid for pid in sample_pids if pid in _order_items_cache]
+            if cached:
+                avg_itens = sum(_order_items_cache[pid] for pid in cached) / len(cached)
+                total_itens = int(avg_itens * vb["totalPedidos"])
+                pa = round(avg_itens, 2)
+                pa_aproximado = vb["totalPedidos"] > PA_SAMPLE
+            else:
+                total_itens = 0
+                pa = None
+                pa_aproximado = False
+            remaining_ids.extend(pid for pid in vb["order_ids"][PA_SAMPLE:] if pid not in _order_items_cache)
+            ranking.append({
+                "id": vendor_id,
+                "nome": vb["nome"],
+                "totalValor": vb["totalValor"],
+                "totalPedidos": vb["totalPedidos"],
+                "totalItens": total_itens,
+                "ticketMedio": vb["ticketMedio"],
+                "pa": pa,
+                "paAproximado": pa_aproximado,
+            })
+
+        # Background: aquece cache dos pedidos restantes para próximas cargas
+        if remaining_ids and background_tasks is not None:
+            background_tasks.add_task(_warm_vendor_cache_bg, remaining_ids, headers)
 
         ranking.sort(key=lambda x: x["totalValor"], reverse=True)
         return ranking
