@@ -83,7 +83,9 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
                 break
             for pedido in pedidos:
                 r = _processar_pedido(pedido, db)
-                if r == "novo": novos += 1
+                if r == "novo":
+                    novos += 1
+                    await _notificar_nova_venda(pedido, headers, client)
                 elif r == "atualizado": atualizados += 1
             # Bling não retorna meta.totalPages — paramos quando a página vem incompleta
             if len(pedidos) < 100:
@@ -91,6 +93,42 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
             pagina += 1
     db.commit()
     return {"novos": novos, "atualizados": atualizados}
+
+async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.AsyncClient):
+    """Notifica o CRM atendimento-whatsapp de uma venda nova: mensagem automática
+    pro comprador + delegação da conversa pra vendedora. Falha aqui não deve
+    interromper a sincronização — só loga o erro."""
+    try:
+        contato = pedido.get("contato") or {}
+        contato_id = contato.get("id")
+        if not contato_id:
+            return
+        resp = await client.get(f"{BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
+        if resp.status_code != 200:
+            logger.warning(f"[notificar_venda] contato {contato_id} retornou {resp.status_code}")
+            return
+        contato_full = resp.json().get("data", {})
+        celular = (contato_full.get("celular") or contato_full.get("telefone") or "").strip()
+        if not celular:
+            logger.warning(f"[notificar_venda] contato {contato_id} sem celular/telefone cadastrado")
+            return
+
+        vendedor = pedido.get("vendedor") or {}
+        payload = {
+            "telefone": celular,
+            "cliente_nome": contato.get("nome", ""),
+            "vendedor_nome": (vendedor.get("nome") or "").strip(),
+            "valor_total": float(pedido.get("totalVenda", 0) or 0),
+            "num_itens": sum(int(i.get("quantidade", 0)) for i in (pedido.get("itens") or [])),
+            "pedido_id": str(pedido.get("id", "")),
+        }
+        url = os.getenv("ATENDIMENTO_WHATSAPP_URL", "https://atendimento-whatsapp-production.up.railway.app").rstrip("/") + "/api/vendas/notificar"
+        api_key = os.getenv("VENDAS_API_KEY", "")
+        resp = await client.post(url, json=payload, headers={"X-API-Key": api_key}, timeout=15)
+        if resp.status_code != 200:
+            logger.warning(f"[notificar_venda] atendimento-whatsapp retornou {resp.status_code}: {resp.text}")
+    except Exception as e:
+        logger.error(f"[notificar_venda] erro ao notificar pedido {pedido.get('id')}: {e}")
 
 def _processar_pedido(pedido: dict, db: Session) -> str:
     bling_id = str(pedido.get("id", ""))
