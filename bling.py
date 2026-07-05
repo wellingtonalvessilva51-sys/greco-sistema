@@ -71,6 +71,7 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
     data_inicio = (datetime.now() - timedelta(days=dias)).strftime("%Y-%m-%d")
     novos = atualizados = pagina = 0
     pagina = 1
+    vendedores_cache = None
     async with httpx.AsyncClient(timeout=30) as client:
         while True:
             resp = await client.get(f"{BLING_BASE_URL}/pedidos/vendas", headers=headers,
@@ -85,7 +86,9 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
                 r = _processar_pedido(pedido, db)
                 if r == "novo":
                     novos += 1
-                    await _notificar_nova_venda(pedido, headers, client)
+                    if vendedores_cache is None:
+                        vendedores_cache = await _buscar_vendedores(headers, client)
+                    await _notificar_nova_venda(pedido, headers, client, vendedores_cache)
                 elif r == "atualizado": atualizados += 1
             # Bling não retorna meta.totalPages — paramos quando a página vem incompleta
             if len(pedidos) < 100:
@@ -94,14 +97,28 @@ async def sincronizar_pedidos(db: Session, dias: int = 30) -> dict:
     db.commit()
     return {"novos": novos, "atualizados": atualizados}
 
-async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.AsyncClient):
+async def _buscar_vendedores(headers: dict, client: httpx.AsyncClient) -> dict:
+    """Retorna {vendedor_id: nome}. A Bling só devolve o nome da vendedora no
+    endpoint /vendedores — o pedido (lista ou detalhe) só traz o id."""
+    try:
+        resp = await client.get(f"{BLING_BASE_URL}/vendedores", headers=headers)
+        if resp.status_code != 200:
+            return {}
+        data = resp.json().get("data", [])
+        return {v["id"]: (v.get("contato") or {}).get("nome", "") for v in data}
+    except Exception as e:
+        logger.error(f"[notificar_venda] erro ao buscar vendedores: {e}")
+        return {}
+
+async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.AsyncClient, vendedores: dict):
     """Notifica o CRM atendimento-whatsapp de uma venda nova: mensagem automática
     pro comprador + delegação da conversa pra vendedora. Falha aqui não deve
     interromper a sincronização — só loga o erro."""
     try:
         contato = pedido.get("contato") or {}
         contato_id = contato.get("id")
-        if not contato_id:
+        pedido_id = pedido.get("id")
+        if not contato_id or not pedido_id:
             return
         resp = await client.get(f"{BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
         if resp.status_code != 200:
@@ -113,14 +130,25 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
             logger.warning(f"[notificar_venda] contato {contato_id} sem celular/telefone cadastrado")
             return
 
-        vendedor = pedido.get("vendedor") or {}
+        # A listagem de /pedidos/vendas não traz vendedor nem itens — só o
+        # detalhe do pedido tem isso, e mesmo assim só o id do vendedor
+        # (o nome vem do mapa de /vendedores buscado em _buscar_vendedores).
+        vendedor_nome = ""
+        num_itens = 0
+        detalhe_resp = await client.get(f"{BLING_BASE_URL}/pedidos/vendas/{pedido_id}", headers=headers)
+        if detalhe_resp.status_code == 200:
+            detalhe = detalhe_resp.json().get("data", {})
+            vendedor_id = (detalhe.get("vendedor") or {}).get("id")
+            vendedor_nome = vendedores.get(vendedor_id, "")
+            num_itens = sum(int(i.get("quantidade", 0)) for i in (detalhe.get("itens") or []))
+
         payload = {
             "telefone": celular,
             "cliente_nome": contato.get("nome", ""),
-            "vendedor_nome": (vendedor.get("nome") or "").strip(),
-            "valor_total": float(pedido.get("totalVenda", 0) or 0),
-            "num_itens": sum(int(i.get("quantidade", 0)) for i in (pedido.get("itens") or [])),
-            "pedido_id": str(pedido.get("id", "")),
+            "vendedor_nome": vendedor_nome,
+            "valor_total": float(pedido.get("total", 0) or 0),
+            "num_itens": num_itens,
+            "pedido_id": str(pedido_id),
         }
         url = os.getenv("ATENDIMENTO_WHATSAPP_URL", "https://atendimento-whatsapp-production.up.railway.app").rstrip("/") + "/api/vendas/notificar"
         api_key = os.getenv("VENDAS_API_KEY", "")
