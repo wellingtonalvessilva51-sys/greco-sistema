@@ -135,12 +135,15 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
         # (o nome vem do mapa de /vendedores buscado em _buscar_vendedores).
         vendedor_nome = ""
         num_itens = 0
+        produtos = []
         detalhe_resp = await client.get(f"{BLING_BASE_URL}/pedidos/vendas/{pedido_id}", headers=headers)
         if detalhe_resp.status_code == 200:
             detalhe = detalhe_resp.json().get("data", {})
             vendedor_id = (detalhe.get("vendedor") or {}).get("id")
             vendedor_nome = vendedores.get(vendedor_id, "")
-            num_itens = sum(int(i.get("quantidade", 0)) for i in (detalhe.get("itens") or []))
+            itens_detalhe = detalhe.get("itens") or []
+            num_itens = sum(int(i.get("quantidade", 0)) for i in itens_detalhe)
+            produtos = [i.get("descricao", "") for i in itens_detalhe if i.get("descricao")]
 
         payload = {
             "telefone": celular,
@@ -148,6 +151,7 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
             "vendedor_nome": vendedor_nome,
             "valor_total": float(pedido.get("total", 0) or 0),
             "num_itens": num_itens,
+            "produtos": produtos,
             "pedido_id": str(pedido_id),
         }
         url = os.getenv("ATENDIMENTO_WHATSAPP_URL", "https://atendimento-whatsapp-production.up.railway.app").rstrip("/") + "/api/vendas/notificar"
