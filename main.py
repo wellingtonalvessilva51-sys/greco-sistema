@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Depends, HTTPException, Request, Form, UploadFile, File, BackgroundTasks
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.orm import Session
@@ -66,6 +67,19 @@ def _setup_inicial():
     Path("uploads").mkdir(exist_ok=True)
 
 app = FastAPI(title="Sistema Greco", lifespan=lifespan)
+
+# Permite a tela de cadastro de produto rodar dentro do CRM atendimento-whatsapp
+# (Modexa) chamando esse backend direto do navegador.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://atendimento-whatsapp-production.up.railway.app",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "templates"))
