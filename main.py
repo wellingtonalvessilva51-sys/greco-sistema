@@ -348,6 +348,32 @@ async def listar_produtos(request: Request, db: Session = Depends(get_db)):
         modelos_por_produto[p.id] = db.query(ModeloImagem).filter(ModeloImagem.produto_id == p.id).order_by(ModeloImagem.tamanho).all()
     return templates.TemplateResponse("produtos.html", {"request": request, "user": user, "produtos": produtos, "modelos": modelos_por_produto})
 
+@app.get("/api/produtos-lista")
+async def api_listar_produtos(db: Session = Depends(get_db)):
+    """Mesma listagem de /produtos, mas em JSON — usada pela aba Estoque no Modexa (CORS liberado)."""
+    produtos = db.query(Produto).order_by(Produto.criado_em.desc()).all()
+    result = []
+    for p in produtos:
+        modelos = db.query(ModeloImagem).filter(ModeloImagem.produto_id == p.id).order_by(ModeloImagem.tamanho).all()
+        result.append({
+            "id": p.id,
+            "bling_produto_id": p.bling_produto_id,
+            "nome": p.nome,
+            "sku": p.sku,
+            "ncm": p.ncm,
+            "preco_venda": p.preco_venda,
+            "preco_custo": p.preco_custo,
+            "estoque_inicial": p.estoque_inicial,
+            "tem_variacoes": p.tem_variacoes,
+            "imagem_url": p.imagem_url,
+            "criado_em": p.criado_em.isoformat() if p.criado_em else None,
+            "modelos": [
+                {"id": m.id, "tamanho": m.tamanho, "tipo_modelo": m.tipo_modelo, "imagem_url": m.imagem_url}
+                for m in modelos
+            ],
+        })
+    return {"produtos": result}
+
 @app.get("/cadastrar-produto", response_class=HTMLResponse)
 async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):
     user = get_user(request, db)
