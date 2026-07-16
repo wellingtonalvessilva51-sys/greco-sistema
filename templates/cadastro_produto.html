@@ -9,9 +9,11 @@
 body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;min-height:100vh;}
 .header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;}
 .header h1{color:#c9a84c;font-size:18px;}
+.header-right{display:flex;gap:12px;align-items:center;}
 .btn{background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;}
 .btn:disabled{opacity:.5;cursor:not-allowed;}
 .btn-outline{background:transparent;border:1px solid #2e2b24;color:#f0ece3;}
+.btn-sm{padding:6px 12px;font-size:12px;}
 .container{max-width:600px;margin:32px auto;padding:0 24px;}
 .card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;padding:24px;margin-bottom:20px;}
 .card-title{font-size:14px;font-weight:700;color:#c9a84c;margin-bottom:20px;border-bottom:1px solid #2e2b24;padding-bottom:12px;}
@@ -55,8 +57,12 @@ input:focus{outline:none;border-color:#c9a84c;}
 </head>
 <body>
 <div class="header">
-  <h1>Modexa — Cadastro de Produto</h1>
-  <a href="/gerente" class="btn btn-outline" style="padding:6px 14px;font-size:13px;">← Voltar</a>
+  <h1>🏪 Sistema Greco</h1>
+  <div class="header-right">
+    {% if user %}<span style="color:#6b6455;font-size:13px;">Olá, {{ user.nome }}</span>{% endif %}
+    <a href="/gerente" class="btn btn-outline btn-sm">← Painel</a>
+    {% if user %}<a href="/logout" class="btn btn-outline btn-sm">Sair</a>{% endif %}
+  </div>
 </div>
 
 <div class="container">

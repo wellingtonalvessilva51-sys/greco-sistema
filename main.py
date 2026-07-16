@@ -337,8 +337,6 @@ async def listar_produtos(request: Request, db: Session = Depends(get_db)):
 @app.get("/cadastrar-produto", response_class=HTMLResponse)
 async def cadastrar_produto_page(request: Request, db: Session = Depends(get_db)):
     user = get_user(request, db)
-    if not user or not user.is_gerente:
-        return RedirectResponse("/")
     return templates.TemplateResponse("cadastro_produto.html", {"request": request, "user": user})
 
 @app.post("/api/cadastrar-produto")
@@ -357,9 +355,6 @@ async def api_cadastrar_produto(
     sugestao_look: str = Form(""),
     db: Session = Depends(get_db)
 ):
-    user = get_user(request, db)
-    if not user or not user.is_gerente:
-        raise HTTPException(403)
     ext = (imagem.filename or "img.jpg").rsplit(".", 1)[-1].lower()
     if ext not in ("jpg", "jpeg", "png", "webp"):
         ext = "jpg"
