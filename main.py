@@ -20,6 +20,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 scheduler = AsyncIOScheduler()
 
+async def _bling_get_retry(client: httpx.AsyncClient, url: str, headers: dict, params=None, tentativas: int = 4):
+    """GET com retry/backoff pra 429 (rate limit) do Bling — sem isso, os
+    jobs de sincronização paravam silenciosamente na primeira página que
+    tomava 429, tratando igual a "acabaram os resultados" (foi o que
+    aconteceu com o catálogo e os contatos, cortando no meio da lista)."""
+    espera = 1.5
+    for tentativa in range(tentativas):
+        r = await client.get(url, headers=headers, params=params)
+        if r.status_code != 429:
+            return r
+        logger.warning(f"[bling] 429 rate limit em {url} (tentativa {tentativa + 1}/{tentativas}), aguardando {espera}s")
+        await asyncio.sleep(espera)
+        espera *= 2
+    return r  # devolve a última resposta (ainda 429) pro chamador decidir o que fazer
+
 async def job_sincronizar():
     db = SessionLocal()
     try:
@@ -40,16 +55,17 @@ async def job_sincronizar_catalogo():
         async with httpx.AsyncClient(timeout=25) as client:
             pagina = 1
             while True:
-                r = await client.get(f"{bling_svc.BLING_BASE_URL}/produtos", headers=headers,
-                                      params={"pagina": pagina, "limite": 100, "situacao": "A"})
+                r = await _bling_get_retry(client, f"{bling_svc.BLING_BASE_URL}/produtos", headers,
+                                            params={"pagina": pagina, "limite": 100, "situacao": "A"})
                 if r.status_code != 200:
+                    logger.warning(f"[catalogo] parou na página {pagina}: HTTP {r.status_code}")
                     break
                 lote = r.json().get("data", [])
                 produtos.extend(lote)
                 if len(lote) < 100 or pagina >= 60:  # trava de segurança (até 6000 produtos)
                     break
                 pagina += 1
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.4)
 
             estoque_por_id: dict = {}
             ids = [p["id"] for p in produtos]
@@ -57,13 +73,15 @@ async def job_sincronizar_catalogo():
                 lote_ids = ids[i:i + 100]
                 params = [("idsProdutos[]", pid) for pid in lote_ids]
                 try:
-                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers=headers, params=params)
+                    r = await _bling_get_retry(client, f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers, params=params)
                     if r.status_code == 200:
                         for item in r.json().get("data", []):
                             estoque_por_id[item.get("produto", {}).get("id")] = float(item.get("saldoFisicoTotal") or 0)
+                    else:
+                        logger.warning(f"[catalogo] saldos lote {i}: HTTP {r.status_code}")
                 except Exception:
                     pass
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.4)
 
         agora = datetime.utcnow()
         ids_vistos = set()
@@ -112,16 +130,17 @@ async def job_sincronizar_contatos():
         async with httpx.AsyncClient(timeout=25) as client:
             pagina = 1
             while True:
-                r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers,
-                                      params={"pagina": pagina, "limite": 100, "situacao": "A"})
+                r = await _bling_get_retry(client, f"{bling_svc.BLING_BASE_URL}/contatos", headers,
+                                            params={"pagina": pagina, "limite": 100, "situacao": "A"})
                 if r.status_code != 200:
+                    logger.warning(f"[contatos] parou na página {pagina}: HTTP {r.status_code}")
                     break
                 lote = r.json().get("data", [])
                 contatos.extend(lote)
                 if len(lote) < 100 or pagina >= 100:  # trava de segurança (até 10000 contatos)
                     break
                 pagina += 1
-                await asyncio.sleep(0.2)
+                await asyncio.sleep(0.4)
 
         agora = datetime.utcnow()
         ids_vistos = set()
