@@ -946,6 +946,16 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/_debug-saldos")
+async def _debug_saldos(ids: str = "", db: Session = Depends(get_db)):
+    """Diagnóstico temporário — remover depois de confirmar o formato da resposta."""
+    headers = await bling_svc._get_headers(db)
+    id_list = [i.strip() for i in ids.split(",") if i.strip()]
+    async with httpx.AsyncClient(timeout=20) as client:
+        params = [("idsProdutos[]", pid) for pid in id_list]
+        r = await client.get(f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers=headers, params=params)
+        return {"status": r.status_code, "body": r.text[:3000]}
+
 @app.get("/api/bling/produtos-catalogo")
 async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get_db)):
     """Catálogo completo de produtos do Bling (não só os cadastrados por aqui),
