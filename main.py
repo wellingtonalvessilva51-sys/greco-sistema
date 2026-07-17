@@ -1085,13 +1085,36 @@ async def bling_produtos_mais_vendidos(dataInicial: str = "", dataFinal: str = "
     except Exception as e:
         return {"error": str(e)}
 
-@app.get("/api/bling/_debug-contato/{contato_id}")
-async def _debug_contato(contato_id: str, db: Session = Depends(get_db)):
-    """Diagnóstico temporário — remover depois de confirmar os campos disponíveis."""
-    headers = await bling_svc._get_headers(db)
-    async with httpx.AsyncClient(timeout=20) as client:
-        r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
-        return {"status": r.status_code, "body": r.text}
+@app.get("/api/bling/aniversario")
+async def bling_aniversario(telefone: str, db: Session = Depends(get_db)):
+    """Busca a data de nascimento de UM contato no Bling pelo telefone —
+    usado pelo Modexa pra sincronizar aniversário aos poucos (contato por
+    contato, porque o Bling só expõe isso no detalhe, não na listagem, e
+    não tem endpoint em lote pra isso)."""
+    digits = "".join(c for c in telefone if c.isdigit())
+    if not digits:
+        return {"encontrado": False}
+    try:
+        headers = await bling_svc._get_headers(db)
+        async with httpx.AsyncClient(timeout=15) as client:
+            # Bling busca por telefone sem DDI de país costuma casar melhor
+            busca = digits[2:] if digits.startswith("55") and len(digits) > 11 else digits
+            r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers,
+                                  params={"pesquisa": busca, "limite": 5})
+            if r.status_code != 200:
+                return {"encontrado": False}
+            candidatos = r.json().get("data", [])
+            if not candidatos:
+                return {"encontrado": False}
+            contato_id = candidatos[0]["id"]
+            rd = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
+            if rd.status_code != 200:
+                return {"encontrado": False}
+            detalhe = rd.json().get("data", {})
+            nascimento = (detalhe.get("dadosAdicionais") or {}).get("dataNascimento") or None
+            return {"encontrado": True, "nome": detalhe.get("nome", ""), "dataNascimento": nascimento}
+    except Exception as e:
+        return {"encontrado": False, "erro": str(e)}
 
 @app.get("/health")
 async def health():
