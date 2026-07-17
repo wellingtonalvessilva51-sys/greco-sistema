@@ -946,14 +946,21 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
     except Exception as e:
         return {"error": str(e)}
 
+_catalogo_cache: dict = {"data": None, "ts": 0}
+_CATALOGO_TTL = 600  # 10 min — busca completa é pesada (paginação + saldos em lote), evita repetir a cada abertura da aba
+
 @app.get("/api/bling/produtos-catalogo")
-async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get_db)):
+async def bling_produtos_catalogo(situacao: str = "A", forcar: bool = False, db: Session = Depends(get_db)):
     """Catálogo completo de produtos do Bling (não só os cadastrados por aqui),
     com o saldo de estoque atual de cada um. Usado na aba Produtos do Modexa."""
+    agora = time.time()
+    if not forcar and _catalogo_cache["data"] is not None and (agora - _catalogo_cache["ts"]) < _CATALOGO_TTL:
+        return {**_catalogo_cache["data"], "cache": True}
+
     try:
         headers = await bling_svc._get_headers(db)
         produtos: list = []
-        async with httpx.AsyncClient(timeout=20) as client:
+        async with httpx.AsyncClient(timeout=25) as client:
             pagina = 1
             while True:
                 params = {"pagina": pagina, "limite": 100}
@@ -964,10 +971,10 @@ async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get
                     break
                 lote = r.json().get("data", [])
                 produtos.extend(lote)
-                if len(lote) < 100 or pagina >= 20:  # trava de segurança (até 2000 produtos)
+                if len(lote) < 100 or pagina >= 60:  # trava de segurança (até 6000 produtos)
                     break
                 pagina += 1
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.2)
 
             # Saldo de estoque em lotes de 100 ids (limite da API de saldos do Bling)
             estoque_por_id: dict = {}
@@ -983,9 +990,9 @@ async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get
                             estoque_por_id[item.get("produto", {}).get("id")] = saldo_total
                 except Exception:
                     pass
-                await asyncio.sleep(0.25)
+                await asyncio.sleep(0.2)
 
-        return {"produtos": [
+        resultado = {"produtos": [
             {
                 "id": p["id"],
                 "nome": p.get("nome", ""),
@@ -998,6 +1005,9 @@ async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get
             }
             for p in produtos
         ]}
+        _catalogo_cache["data"] = resultado
+        _catalogo_cache["ts"] = agora
+        return {**resultado, "cache": False}
     except Exception as e:
         return {"error": str(e)}
 
