@@ -12,7 +12,7 @@ from pathlib import Path
 import os, logging, uuid, hashlib, time, asyncio
 import httpx
 
-from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache, ProdutoBlingCache
+from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache, ProdutoBlingCache, ContatoBlingCache
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
 import bling as bling_svc
 
@@ -93,6 +93,61 @@ async def job_sincronizar_catalogo():
     finally:
         db.close()
 
+def _normalizar_telefone(raw: str) -> str:
+    """Só dígitos, sem DDI 55 (formato que o Bling usa no campo celular/telefone)."""
+    digits = "".join(c for c in (raw or "") if c.isdigit())
+    if digits.startswith("55") and len(digits) > 11:
+        digits = digits[2:]
+    return digits
+
+async def job_sincronizar_contatos():
+    """Baixa a lista completa de contatos do Bling (id + telefone) pro cache
+    local — necessário porque a busca por telefone (?pesquisa=) não funciona
+    no Bling (só busca por nome/documento). Sem esse índice não dá pra achar
+    o id do contato a partir do telefone pra buscar o aniversário depois."""
+    db = SessionLocal()
+    try:
+        headers = await bling_svc._get_headers(db)
+        contatos: list = []
+        async with httpx.AsyncClient(timeout=25) as client:
+            pagina = 1
+            while True:
+                r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers,
+                                      params={"pagina": pagina, "limite": 100, "situacao": "A"})
+                if r.status_code != 200:
+                    break
+                lote = r.json().get("data", [])
+                contatos.extend(lote)
+                if len(lote) < 100 or pagina >= 100:  # trava de segurança (até 10000 contatos)
+                    break
+                pagina += 1
+                await asyncio.sleep(0.2)
+
+        agora = datetime.utcnow()
+        ids_vistos = set()
+        for c in contatos:
+            cid = c["id"]
+            ids_vistos.add(cid)
+            tel = _normalizar_telefone(c.get("celular") or c.get("telefone") or "")
+            if not tel:
+                continue
+            row = db.query(ContatoBlingCache).filter(ContatoBlingCache.id == cid).first()
+            if not row:
+                row = ContatoBlingCache(id=cid)
+                db.add(row)
+            row.nome = c.get("nome", "")
+            row.telefone = tel
+            row.atualizado_em = agora
+        if ids_vistos:
+            db.query(ContatoBlingCache).filter(~ContatoBlingCache.id.in_(ids_vistos)).delete(synchronize_session=False)
+        db.commit()
+        logger.info(f"Cache de contatos Bling sincronizado: {len(contatos)} contatos")
+    except Exception as e:
+        logger.error(f"Erro ao sincronizar contatos Bling: {e}")
+        db.rollback()
+    finally:
+        db.close()
+
 def _load_vendor_cache_from_db():
     """Carrega cache de vendedores e itens do Postgres na inicialização."""
     try:
@@ -114,8 +169,10 @@ async def lifespan(app: FastAPI):
     _load_vendor_cache_from_db()
     scheduler.add_job(job_sincronizar, "interval", hours=1)
     scheduler.add_job(job_sincronizar_catalogo, "interval", hours=3)
+    scheduler.add_job(job_sincronizar_contatos, "interval", hours=6)
     scheduler.start()
     asyncio.create_task(job_sincronizar_catalogo())  # primeira carga, sem travar o boot
+    asyncio.create_task(job_sincronizar_contatos())
     yield
     scheduler.shutdown()
 
@@ -1088,26 +1145,20 @@ async def bling_produtos_mais_vendidos(dataInicial: str = "", dataFinal: str = "
 @app.get("/api/bling/aniversario")
 async def bling_aniversario(telefone: str, db: Session = Depends(get_db)):
     """Busca a data de nascimento de UM contato no Bling pelo telefone —
-    usado pelo Modexa pra sincronizar aniversário aos poucos (contato por
-    contato, porque o Bling só expõe isso no detalhe, não na listagem, e
-    não tem endpoint em lote pra isso)."""
-    digits = "".join(c for c in telefone if c.isdigit())
-    if not digits:
+    usado pelo Modexa pra sincronizar aniversário aos poucos. A busca por
+    telefone não funciona direto na API do Bling (só nome/documento), então
+    primeiro acha o id do contato no cache local (job_sincronizar_contatos)
+    e só então busca o detalhe (onde fica o dado de aniversário)."""
+    tel = _normalizar_telefone(telefone)
+    if not tel:
         return {"encontrado": False}
+    contato_cache = db.query(ContatoBlingCache).filter(ContatoBlingCache.telefone == tel).first()
+    if not contato_cache:
+        return {"encontrado": False, "motivo": "telefone não encontrado no cache de contatos do Bling"}
     try:
         headers = await bling_svc._get_headers(db)
         async with httpx.AsyncClient(timeout=15) as client:
-            # Bling busca por telefone sem DDI de país costuma casar melhor
-            busca = digits[2:] if digits.startswith("55") and len(digits) > 11 else digits
-            r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos", headers=headers,
-                                  params={"pesquisa": busca, "limite": 5})
-            if r.status_code != 200:
-                return {"encontrado": False}
-            candidatos = r.json().get("data", [])
-            if not candidatos:
-                return {"encontrado": False}
-            contato_id = candidatos[0]["id"]
-            rd = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
+            rd = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{contato_cache.id}", headers=headers)
             if rd.status_code != 200:
                 return {"encontrado": False}
             detalhe = rd.json().get("data", {})
@@ -1115,6 +1166,12 @@ async def bling_aniversario(telefone: str, db: Session = Depends(get_db)):
             return {"encontrado": True, "nome": detalhe.get("nome", ""), "dataNascimento": nascimento}
     except Exception as e:
         return {"encontrado": False, "erro": str(e)}
+
+@app.get("/api/bling/contatos-cache-status")
+async def bling_contatos_cache_status(db: Session = Depends(get_db)):
+    total = db.query(ContatoBlingCache).count()
+    ultimo = db.query(ContatoBlingCache).order_by(ContatoBlingCache.atualizado_em.desc()).first()
+    return {"total": total, "atualizado_em": ultimo.atualizado_em.isoformat() if ultimo else None}
 
 @app.get("/health")
 async def health():

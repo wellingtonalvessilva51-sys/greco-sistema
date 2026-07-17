@@ -113,6 +113,17 @@ class ProdutoBlingCache(Base):
     estoque_atual = Column(Float, nullable=True)
     atualizado_em = Column(DateTime, default=datetime.utcnow)
 
+class ContatoBlingCache(Base):
+    """Lista completa de contatos do Bling (id + telefone normalizado) —
+    a busca por telefone (?pesquisa=) não funciona no Bling, só por nome/
+    documento, então precisamos de um índice local próprio pra achar o id
+    do contato a partir do telefone antes de buscar o detalhe (aniversário)."""
+    __tablename__ = "contatos_bling_cache"
+    id = Column(BigInteger, primary_key=True)  # id do contato no Bling
+    nome = Column(String, default="")
+    telefone = Column(String, default="", index=True)  # normalizado, só dígitos, sem DDI 55
+    atualizado_em = Column(DateTime, default=datetime.utcnow)
+
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
     try:
