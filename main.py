@@ -946,6 +946,108 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/produtos-catalogo")
+async def bling_produtos_catalogo(situacao: str = "A", db: Session = Depends(get_db)):
+    """Catálogo completo de produtos do Bling (não só os cadastrados por aqui),
+    com o saldo de estoque atual de cada um. Usado na aba Produtos do Modexa."""
+    try:
+        headers = await bling_svc._get_headers(db)
+        produtos: list = []
+        async with httpx.AsyncClient(timeout=20) as client:
+            pagina = 1
+            while True:
+                params = {"pagina": pagina, "limite": 100}
+                if situacao:
+                    params["situacao"] = situacao
+                r = await client.get(f"{bling_svc.BLING_BASE_URL}/produtos", headers=headers, params=params)
+                if r.status_code != 200:
+                    break
+                lote = r.json().get("data", [])
+                produtos.extend(lote)
+                if len(lote) < 100 or pagina >= 20:  # trava de segurança (até 2000 produtos)
+                    break
+                pagina += 1
+                await asyncio.sleep(0.25)
+
+            # Saldo de estoque em lotes de 100 ids (limite da API de saldos do Bling)
+            estoque_por_id: dict = {}
+            ids = [p["id"] for p in produtos]
+            for i in range(0, len(ids), 100):
+                lote_ids = ids[i:i + 100]
+                params = [("idsProdutos[]", pid) for pid in lote_ids]
+                try:
+                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers=headers, params=params)
+                    if r.status_code == 200:
+                        for item in r.json().get("data", []):
+                            saldo_total = sum(float(d.get("saldoFisicoTotal") or 0) for d in (item.get("depositos") or []))
+                            estoque_por_id[item.get("produto", {}).get("id")] = saldo_total
+                except Exception:
+                    pass
+                await asyncio.sleep(0.25)
+
+        return {"produtos": [
+            {
+                "id": p["id"],
+                "nome": p.get("nome", ""),
+                "sku": p.get("codigo", ""),
+                "preco": p.get("preco") or 0,
+                "tipo": p.get("tipo", ""),
+                "situacao": p.get("situacao", ""),
+                "imagem_url": (p.get("imagemURL") or ""),
+                "estoque_atual": estoque_por_id.get(p["id"]),
+            }
+            for p in produtos
+        ]}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/api/bling/produtos-mais-vendidos")
+async def bling_produtos_mais_vendidos(dataInicial: str = "", dataFinal: str = "", limitePedidos: int = 60, db: Session = Depends(get_db)):
+    """Ranking de produtos por quantidade vendida, a partir dos itens dos
+    pedidos de venda recentes (amostra limitada por limitePedidos pra não
+    estourar rate-limit do Bling — cada pedido exige uma chamada individual)."""
+    try:
+        headers = await bling_svc._get_headers(db)
+        params: dict = {"pagina": 1, "limite": min(limitePedidos, 100)}
+        if dataInicial:
+            params["dataInicial"] = dataInicial
+        if dataFinal:
+            params["dataFinal"] = dataFinal
+
+        async with httpx.AsyncClient(timeout=20) as client:
+            r = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas", headers=headers, params=params)
+            if r.status_code != 200:
+                return {"error": f"Bling retornou {r.status_code}", "detail": r.text}
+            pedidos = r.json().get("data", [])[:limitePedidos]
+
+            produtos_agg: dict = {}  # sku -> {nome, sku, quantidade, valorTotal}
+            for p in pedidos:
+                sit = p.get("situacao") or {}
+                sit_id = sit.get("id") if isinstance(sit, dict) else sit
+                if sit_id in (12, 24):  # cancelado
+                    continue
+                try:
+                    rd = await client.get(f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{p['id']}", headers=headers)
+                    itens = rd.json().get("data", {}).get("itens") or []
+                except Exception:
+                    itens = []
+                for it in itens:
+                    sku = it.get("codigo") or it.get("descricao") or "—"
+                    qtd = float(it.get("quantidade") or 0)
+                    valor = qtd * float(it.get("valor") or 0)
+                    if sku not in produtos_agg:
+                        produtos_agg[sku] = {"nome": it.get("descricao", sku), "sku": sku, "quantidade": 0, "valorTotal": 0.0}
+                    produtos_agg[sku]["quantidade"] += qtd
+                    produtos_agg[sku]["valorTotal"] += valor
+                await asyncio.sleep(0.3)
+
+        ranking = sorted(produtos_agg.values(), key=lambda x: x["quantidade"], reverse=True)
+        for r_ in ranking:
+            r_["valorTotal"] = round(r_["valorTotal"], 2)
+        return {"produtos": ranking, "pedidosAnalisados": len(pedidos)}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
