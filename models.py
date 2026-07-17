@@ -98,6 +98,21 @@ class PedidoVendedorCache(Base):
     total_itens = Column(Float, nullable=True)        # soma das quantidades dos itens
     cached_at  = Column(DateTime, default=datetime.utcnow)
 
+class ProdutoBlingCache(Base):
+    """Catálogo completo do Bling (todos os produtos, não só os cadastrados
+    pelo Modexa) + saldo de estoque — sincronizado em background, porque
+    buscar tudo ao vivo (6000+ produtos) demora mais de 1 minuto."""
+    __tablename__ = "produtos_bling_cache"
+    id = Column(BigInteger, primary_key=True)  # id do produto no Bling
+    nome = Column(String, default="")
+    sku = Column(String, default="")
+    preco = Column(Float, default=0)
+    tipo = Column(String, default="")
+    situacao = Column(String, default="")
+    imagem_url = Column(String, default="")
+    estoque_atual = Column(Float, nullable=True)
+    atualizado_em = Column(DateTime, default=datetime.utcnow)
+
 def criar_tabelas():
     Base.metadata.create_all(bind=engine)
     try:

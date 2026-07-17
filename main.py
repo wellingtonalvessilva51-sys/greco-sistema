@@ -12,7 +12,7 @@ from pathlib import Path
 import os, logging, uuid, hashlib, time, asyncio
 import httpx
 
-from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache
+from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache, ProdutoBlingCache
 from auth import hash_senha, verificar_senha, criar_token, verificar_token
 import bling as bling_svc
 
@@ -26,6 +26,70 @@ async def job_sincronizar():
         await bling_svc.sincronizar_pedidos(db, dias=35)
     except Exception as e:
         logger.error(f"Erro sync: {e}")
+    finally:
+        db.close()
+
+async def job_sincronizar_catalogo():
+    """Busca o catálogo completo do Bling (produtos + saldo de estoque) e
+    grava no Postgres — roda em background porque ao vivo demora mais de
+    1 minuto com milhares de produtos. A API só lê dessa tabela."""
+    db = SessionLocal()
+    try:
+        headers = await bling_svc._get_headers(db)
+        produtos: list = []
+        async with httpx.AsyncClient(timeout=25) as client:
+            pagina = 1
+            while True:
+                r = await client.get(f"{bling_svc.BLING_BASE_URL}/produtos", headers=headers,
+                                      params={"pagina": pagina, "limite": 100, "situacao": "A"})
+                if r.status_code != 200:
+                    break
+                lote = r.json().get("data", [])
+                produtos.extend(lote)
+                if len(lote) < 100 or pagina >= 60:  # trava de segurança (até 6000 produtos)
+                    break
+                pagina += 1
+                await asyncio.sleep(0.2)
+
+            estoque_por_id: dict = {}
+            ids = [p["id"] for p in produtos]
+            for i in range(0, len(ids), 100):
+                lote_ids = ids[i:i + 100]
+                params = [("idsProdutos[]", pid) for pid in lote_ids]
+                try:
+                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers=headers, params=params)
+                    if r.status_code == 200:
+                        for item in r.json().get("data", []):
+                            estoque_por_id[item.get("produto", {}).get("id")] = float(item.get("saldoFisicoTotal") or 0)
+                except Exception:
+                    pass
+                await asyncio.sleep(0.2)
+
+        agora = datetime.utcnow()
+        ids_vistos = set()
+        for p in produtos:
+            pid = p["id"]
+            ids_vistos.add(pid)
+            row = db.query(ProdutoBlingCache).filter(ProdutoBlingCache.id == pid).first()
+            if not row:
+                row = ProdutoBlingCache(id=pid)
+                db.add(row)
+            row.nome = p.get("nome", "")
+            row.sku = p.get("codigo", "")
+            row.preco = p.get("preco") or 0
+            row.tipo = p.get("tipo", "")
+            row.situacao = p.get("situacao", "")
+            row.imagem_url = p.get("imagemURL") or ""
+            row.estoque_atual = estoque_por_id.get(pid)
+            row.atualizado_em = agora
+        # Remove produtos que não vieram mais nessa sincronização (inativados/excluídos no Bling)
+        if ids_vistos:
+            db.query(ProdutoBlingCache).filter(~ProdutoBlingCache.id.in_(ids_vistos)).delete(synchronize_session=False)
+        db.commit()
+        logger.info(f"Catálogo Bling sincronizado: {len(produtos)} produtos")
+    except Exception as e:
+        logger.error(f"Erro ao sincronizar catálogo Bling: {e}")
+        db.rollback()
     finally:
         db.close()
 
@@ -49,7 +113,9 @@ async def lifespan(app: FastAPI):
     _setup_inicial()
     _load_vendor_cache_from_db()
     scheduler.add_job(job_sincronizar, "interval", hours=1)
+    scheduler.add_job(job_sincronizar_catalogo, "interval", hours=3)
     scheduler.start()
+    asyncio.create_task(job_sincronizar_catalogo())  # primeira carga, sem travar o boot
     yield
     scheduler.shutdown()
 
@@ -946,70 +1012,31 @@ async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", l
     except Exception as e:
         return {"error": str(e)}
 
-_catalogo_cache: dict = {"data": None, "ts": 0}
-_CATALOGO_TTL = 600  # 10 min — busca completa é pesada (paginação + saldos em lote), evita repetir a cada abertura da aba
-
 @app.get("/api/bling/produtos-catalogo")
-async def bling_produtos_catalogo(situacao: str = "A", forcar: bool = False, db: Session = Depends(get_db)):
+async def bling_produtos_catalogo(db: Session = Depends(get_db)):
     """Catálogo completo de produtos do Bling (não só os cadastrados por aqui),
-    com o saldo de estoque atual de cada um. Usado na aba Produtos do Modexa."""
-    agora = time.time()
-    if not forcar and _catalogo_cache["data"] is not None and (agora - _catalogo_cache["ts"]) < _CATALOGO_TTL:
-        return {**_catalogo_cache["data"], "cache": True}
-
-    try:
-        headers = await bling_svc._get_headers(db)
-        produtos: list = []
-        async with httpx.AsyncClient(timeout=25) as client:
-            pagina = 1
-            while True:
-                params = {"pagina": pagina, "limite": 100}
-                if situacao:
-                    params["situacao"] = situacao
-                r = await client.get(f"{bling_svc.BLING_BASE_URL}/produtos", headers=headers, params=params)
-                if r.status_code != 200:
-                    break
-                lote = r.json().get("data", [])
-                produtos.extend(lote)
-                if len(lote) < 100 or pagina >= 60:  # trava de segurança (até 6000 produtos)
-                    break
-                pagina += 1
-                await asyncio.sleep(0.2)
-
-            # Saldo de estoque em lotes de 100 ids (limite da API de saldos do Bling)
-            estoque_por_id: dict = {}
-            ids = [p["id"] for p in produtos]
-            for i in range(0, len(ids), 100):
-                lote_ids = ids[i:i + 100]
-                params = [("idsProdutos[]", pid) for pid in lote_ids]
-                try:
-                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/estoques/saldos", headers=headers, params=params)
-                    if r.status_code == 200:
-                        for item in r.json().get("data", []):
-                            saldo_total = float(item.get("saldoFisicoTotal") or 0)
-                            estoque_por_id[item.get("produto", {}).get("id")] = saldo_total
-                except Exception:
-                    pass
-                await asyncio.sleep(0.2)
-
-        resultado = {"produtos": [
+    com o saldo de estoque atual de cada um. Lê da tabela sincronizada em
+    background (job_sincronizar_catalogo) — instantâneo, nunca chama o Bling
+    ao vivo (são milhares de produtos, demoraria mais de 1 minuto)."""
+    rows = db.query(ProdutoBlingCache).order_by(ProdutoBlingCache.nome).all()
+    atualizado_em = rows[0].atualizado_em.isoformat() if rows else None
+    return {
+        "produtos": [
             {
-                "id": p["id"],
-                "nome": p.get("nome", ""),
-                "sku": p.get("codigo", ""),
-                "preco": p.get("preco") or 0,
-                "tipo": p.get("tipo", ""),
-                "situacao": p.get("situacao", ""),
-                "imagem_url": (p.get("imagemURL") or ""),
-                "estoque_atual": estoque_por_id.get(p["id"]),
+                "id": r.id, "nome": r.nome, "sku": r.sku, "preco": r.preco,
+                "tipo": r.tipo, "situacao": r.situacao, "imagem_url": r.imagem_url,
+                "estoque_atual": r.estoque_atual,
             }
-            for p in produtos
-        ]}
-        _catalogo_cache["data"] = resultado
-        _catalogo_cache["ts"] = agora
-        return {**resultado, "cache": False}
-    except Exception as e:
-        return {"error": str(e)}
+            for r in rows
+        ],
+        "atualizado_em": atualizado_em,
+    }
+
+@app.post("/api/bling/sincronizar-catalogo")
+async def bling_sincronizar_catalogo_manual(background_tasks: BackgroundTasks):
+    """Dispara a sincronização do catálogo na hora, em background (não trava a resposta)."""
+    background_tasks.add_task(job_sincronizar_catalogo)
+    return {"ok": True, "mensagem": "Sincronização iniciada em background."}
 
 @app.get("/api/bling/produtos-mais-vendidos")
 async def bling_produtos_mais_vendidos(dataInicial: str = "", dataFinal: str = "", limitePedidos: int = 60, db: Session = Depends(get_db)):
