@@ -1085,6 +1085,14 @@ async def bling_produtos_mais_vendidos(dataInicial: str = "", dataFinal: str = "
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/_debug-contato/{contato_id}")
+async def _debug_contato(contato_id: str, db: Session = Depends(get_db)):
+    """Diagnóstico temporário — remover depois de confirmar os campos disponíveis."""
+    headers = await bling_svc._get_headers(db)
+    async with httpx.AsyncClient(timeout=20) as client:
+        r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
+        return {"status": r.status_code, "body": r.text}
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
