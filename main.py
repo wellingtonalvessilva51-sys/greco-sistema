@@ -754,6 +754,34 @@ async def bling_contatos(pagina: int = 1, limite: int = 100, pesquisa: str = "",
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/contatos-por-telefone")
+async def bling_contatos_por_telefone(telefone: str, db: Session = Depends(get_db)):
+    """Busca contatos por telefone — a busca normal do Bling (?pesquisa=) só
+    casa nome/documento, não telefone (ver job_sincronizar_contatos). Usa o
+    índice local de telefones pra achar os ids e busca o detalhe de cada um
+    (poucos resultados esperados, então é ok não ter endpoint em lote)."""
+    tel = _normalizar_telefone(telefone)
+    if not tel or len(tel) < 4:
+        return {"data": []}
+    matches = db.query(ContatoBlingCache).filter(ContatoBlingCache.telefone.contains(tel)).limit(20).all()
+    if not matches:
+        return {"data": []}
+    try:
+        headers = await bling_svc._get_headers(db)
+        resultados = []
+        async with httpx.AsyncClient(timeout=15) as client:
+            for m in matches:
+                try:
+                    r = await client.get(f"{bling_svc.BLING_BASE_URL}/contatos/{m.id}", headers=headers)
+                    if r.status_code == 200:
+                        resultados.append(r.json().get("data", {}))
+                except Exception:
+                    pass
+                await asyncio.sleep(0.15)
+        return {"data": resultados}
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/vendedoras")
 async def api_vendedoras(db: Session = Depends(get_db)):
     rows = db.query(Vendedora).filter(Vendedora.ativa == True).order_by(Vendedora.nome).all()
