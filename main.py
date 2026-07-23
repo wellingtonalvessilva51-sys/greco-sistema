@@ -995,6 +995,21 @@ async def bling_vendas(pagina: int = 1, limite: int = 50, contato: str = "", ven
     except Exception as e:
         return {"error": str(e)}
 
+@app.get("/api/bling/vendas/{venda_id}")
+async def bling_venda_detalhe(venda_id: int, db: Session = Depends(get_db)):
+    """Detalhe de um pedido de venda — inclui os itens/produtos, que a
+    listagem (/api/bling/vendas) não traz. Usado pelo CRM para mostrar os
+    produtos ao clicar numa venda no histórico de compras do cliente."""
+    try:
+        headers = await bling_svc._get_headers(db)
+        async with httpx.AsyncClient(timeout=20) as client:
+            resp = await _bling_get_retry(client, f"{bling_svc.BLING_BASE_URL}/pedidos/vendas/{venda_id}", headers)
+        if resp.status_code != 200:
+            return {"error": f"Bling retornou {resp.status_code}", "detail": resp.text}
+        return resp.json()
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/api/bling/ranking-vendedoras")
 async def bling_ranking_vendedoras(dataInicial: str = "", dataFinal: str = "", lojaId: str = "", background_tasks: BackgroundTasks = None, db: Session = Depends(get_db)):
     try:
