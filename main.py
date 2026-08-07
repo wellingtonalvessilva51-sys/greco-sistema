@@ -62,10 +62,19 @@ async def job_sincronizar_catalogo():
                     break
                 lote = r.json().get("data", [])
                 produtos.extend(lote)
-                if len(lote) < 100 or pagina >= 60:  # trava de segurança (até 6000 produtos)
+                # A trava antiga era 60 páginas (6.000 produtos) e vinha batendo
+                # nela: o catálogo é maior, e o que ficava de fora era produto
+                # vendido de verdade — acessório e calçado sumiam do cache, e
+                # com isso do ERP. 400 páginas dá folga real; o `len(lote) < 100`
+                # é quem encerra de fato quando o catálogo acaba.
+                if len(lote) < 100 or pagina >= 400:
+                    if pagina >= 400:
+                        logger.warning("[catalogo] atingiu o teto de 400 páginas — catálogo pode estar truncado")
                     break
                 pagina += 1
                 await asyncio.sleep(0.4)
+
+            logger.info(f"[catalogo] {len(produtos)} produtos em {pagina} páginas")
 
             estoque_por_id: dict = {}
             ids = [p["id"] for p in produtos]
