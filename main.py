@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from pathlib import Path
-import os, logging, uuid, hashlib, time, asyncio
+import os, logging, uuid, hashlib, time, asyncio, re
 import httpx
 
 from models import criar_tabelas, get_db, SessionLocal, Vendedora, Loja, Venda, TokenBling, Produto, ModeloImagem, PedidoVendedorCache, ProdutoBlingCache, ContatoBlingCache
@@ -140,13 +140,19 @@ async def job_sincronizar_contatos():
             pagina = 1
             while True:
                 r = await _bling_get_retry(client, f"{bling_svc.BLING_BASE_URL}/contatos", headers,
-                                            params={"pagina": pagina, "limite": 100, "situacao": "A"})
+                                            params={"pagina": pagina, "limite": 100})
                 if r.status_code != 200:
                     logger.warning(f"[contatos] parou na página {pagina}: HTTP {r.status_code}")
                     break
                 lote = r.json().get("data", [])
                 contatos.extend(lote)
-                if len(lote) < 100 or pagina >= 100:  # trava de segurança (até 10000 contatos)
+                # A trava anterior era de 100 páginas (10.000 contatos) e a base já
+                # passou disso: o corte silencioso deixou 4.554 clientes sem
+                # telefone no ERP. Agora avisa em vez de truncar calado.
+                if len(lote) < 100:
+                    break
+                if pagina >= 500:
+                    logger.warning("[contatos] atingiu 500 páginas — catálogo pode estar truncado")
                     break
                 pagina += 1
                 await asyncio.sleep(0.4)
@@ -170,11 +176,69 @@ async def job_sincronizar_contatos():
             db.query(ContatoBlingCache).filter(~ContatoBlingCache.id.in_(ids_vistos)).delete(synchronize_session=False)
         db.commit()
         logger.info(f"Cache de contatos Bling sincronizado: {len(contatos)} contatos")
+        await _empurrar_contatos_para_erp(contatos)
     except Exception as e:
         logger.error(f"Erro ao sincronizar contatos Bling: {e}")
         db.rollback()
     finally:
         db.close()
+
+ERP_URL = os.getenv("ERP_URL", "").rstrip("/")
+ERP_EMAIL = os.getenv("ERP_EMAIL", "")
+ERP_SENHA = os.getenv("ERP_SENHA", "")
+ERP_DOCUMENTO = os.getenv("ERP_DOCUMENTO", "")
+
+
+async def _empurrar_contatos_para_erp(contatos: list) -> None:
+    """Manda os contatos do Bling para o ERP, que preenche só o que falta lá.
+
+    Ponte temporária: enquanto a loja cadastrar cliente no Bling, o ERP precisa
+    receber esse dado de alguma forma. O dia em que o cadastro nascer no PDV,
+    este job perde a razão de existir e sai junto com o Bling.
+
+    Sem as variáveis de ambiente configuradas, não faz nada — não é obrigatório
+    para o resto do serviço funcionar.
+    """
+    if not (ERP_URL and ERP_EMAIL and ERP_SENHA and ERP_DOCUMENTO):
+        return
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            r = await client.post(f"{ERP_URL}/v1/auth/login", json={
+                "email": ERP_EMAIL, "senha": ERP_SENHA, "documento": ERP_DOCUMENTO,
+            })
+            if r.status_code != 200:
+                logger.warning(f"[contatos→erp] login falhou: HTTP {r.status_code}")
+                return
+            headers = {"Authorization": f"Bearer {r.json()['access_token']}"}
+
+            payload = []
+            for c in contatos:
+                tel = _normalizar_telefone(c.get("celular") or c.get("telefone") or "")
+                if not tel:
+                    continue
+                payload.append({
+                    "origem_externa_id": str(c["id"]),
+                    "nome": (c.get("nome") or "Sem nome")[:160],
+                    "documento": re.sub(r"\D", "", c.get("numeroDocumento") or "") or None,
+                    "celular": tel,
+                })
+
+            enviados = atualizados = criados = 0
+            for i in range(0, len(payload), 500):
+                fatia = payload[i:i + 500]
+                resp = await client.post(f"{ERP_URL}/v1/importacao/contatos",
+                                         json={"contatos": fatia}, headers=headers)
+                if resp.status_code != 200:
+                    logger.warning(f"[contatos→erp] lote {i // 500 + 1}: HTTP {resp.status_code}")
+                    continue
+                d = resp.json()
+                enviados += d.get("recebidos", 0)
+                criados += d.get("importados", 0)
+                atualizados += d.get("atualizados", 0)
+            logger.info(f"[contatos→erp] {enviados} enviados, {criados} criados, {atualizados} completados")
+    except Exception as e:
+        logger.warning(f"[contatos→erp] falhou: {e}")
+
 
 def _load_vendor_cache_from_db():
     """Carrega cache de vendedores e itens do Postgres na inicialização."""
