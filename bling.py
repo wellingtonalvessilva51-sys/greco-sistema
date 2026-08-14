@@ -1,4 +1,4 @@
-import httpx, os, secrets, base64, logging
+import httpx, os, secrets, base64, logging, asyncio
 from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
 from models import Venda, TokenBling
@@ -110,6 +110,23 @@ async def _buscar_vendedores(headers: dict, client: httpx.AsyncClient) -> dict:
         logger.error(f"[notificar_venda] erro ao buscar vendedores: {e}")
         return {}
 
+async def _bling_get(client: httpx.AsyncClient, url: str, headers: dict, tentativas: int = 3):
+    """GET no Bling com repetição em 429/5xx. A API limita ~3 req/s e a sincronização
+    dispara duas chamadas por pedido novo em rajada; sem isso, um 429 era tratado
+    como 'pedido sem vendedor' e a conversa ia parar na vendedora errada."""
+    resp = None
+    for tentativa in range(tentativas):
+        resp = await client.get(url, headers=headers)
+        if resp.status_code != 429 and resp.status_code < 500:
+            return resp
+        if tentativa == tentativas - 1:
+            break
+        espera = float(resp.headers.get("Retry-After") or 0) or (2 ** tentativa)
+        logger.warning(f"[bling] {url} retornou {resp.status_code} — nova tentativa em {espera}s")
+        await asyncio.sleep(espera)
+    return resp
+
+
 async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.AsyncClient, vendedores: dict):
     """Notifica o CRM atendimento-whatsapp de uma venda nova: mensagem automática
     pro comprador + delegação da conversa pra vendedora. Falha aqui não deve
@@ -120,7 +137,7 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
         pedido_id = pedido.get("id")
         if not contato_id or not pedido_id:
             return
-        resp = await client.get(f"{BLING_BASE_URL}/contatos/{contato_id}", headers=headers)
+        resp = await _bling_get(client, f"{BLING_BASE_URL}/contatos/{contato_id}", headers)
         if resp.status_code != 200:
             logger.warning(f"[notificar_venda] contato {contato_id} retornou {resp.status_code}")
             return
@@ -136,7 +153,7 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
         vendedor_nome = ""
         num_itens = 0
         produtos = []
-        detalhe_resp = await client.get(f"{BLING_BASE_URL}/pedidos/vendas/{pedido_id}", headers=headers)
+        detalhe_resp = await _bling_get(client, f"{BLING_BASE_URL}/pedidos/vendas/{pedido_id}", headers)
         if detalhe_resp.status_code == 200:
             detalhe = detalhe_resp.json().get("data", {})
             vendedor_id = (detalhe.get("vendedor") or {}).get("id")
@@ -144,6 +161,18 @@ async def _notificar_nova_venda(pedido: dict, headers: dict, client: httpx.Async
             itens_detalhe = detalhe.get("itens") or []
             num_itens = sum(int(i.get("quantidade", 0)) for i in itens_detalhe)
             produtos = [i.get("descricao", "") for i in itens_detalhe if i.get("descricao")]
+            # Sem o nome, o CRM não tem como delegar a conversa pra quem vendeu.
+            # Distinguir "pedido sem vendedor" de "id fora do mapa" importa: o
+            # primeiro é lançamento incompleto no Bling, o segundo é vendedora
+            # nova que entrou depois do cache desta rodada.
+            if not vendedor_nome:
+                motivo = "pedido sem vendedor" if not vendedor_id else f"vendedor {vendedor_id} fora do mapa de /vendedores"
+                logger.warning(f"[notificar_venda] pedido {pedido_id}: {motivo} — conversa não será redelegada")
+        else:
+            logger.warning(
+                f"[notificar_venda] detalhe do pedido {pedido_id} retornou {detalhe_resp.status_code} — "
+                "sem vendedor nem itens, conversa não será redelegada"
+            )
 
         payload = {
             "telefone": celular,
