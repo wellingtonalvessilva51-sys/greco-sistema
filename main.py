@@ -1312,6 +1312,35 @@ async def bling_contatos_cache_status(db: Session = Depends(get_db)):
 async def health():
     return {"status": "ok"}
 
+# Contas a pagar e notas de ENTRADA do Bling, só leitura, para a importação dos
+# boletos no Modexa (26/09/2026). Repassa os parâmetros da query como vieram
+# (pagina, limite, situacoes[], dataVencimentoInicial, tipo...): quem chama
+# conhece a API do Bling; aqui só entra o token. É dado financeiro, então vai
+# atrás da mesma chave dos endpoints de escrita — as rotas abertas de venda
+# ficaram assim por herança, não por decisão.
+async def _bling_leitura(request: Request, db: Session, caminho: str):
+    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+        raise HTTPException(403, "Chave inválida")
+    headers = await bling_svc._get_headers(db)
+    params = list(request.query_params.multi_items())
+    async with httpx.AsyncClient(timeout=30) as client:
+        resp = await client.get(f"{bling_svc.BLING_BASE_URL}{caminho}", headers=headers, params=params)
+    if resp.status_code != 200:
+        return JSONResponse({"error": f"Bling retornou {resp.status_code}", "detail": resp.text[:500]}, status_code=502)
+    return resp.json()
+
+@app.get("/api/bling/contas-pagar")
+async def bling_contas_pagar(request: Request, db: Session = Depends(get_db)):
+    return await _bling_leitura(request, db, "/contas/pagar")
+
+@app.get("/api/bling/nfe")
+async def bling_nfe(request: Request, db: Session = Depends(get_db)):
+    return await _bling_leitura(request, db, "/nfe")
+
+@app.get("/api/bling/nfe/{nfe_id}")
+async def bling_nfe_detalhe(nfe_id: int, request: Request, db: Session = Depends(get_db)):
+    return await _bling_leitura(request, db, f"/nfe/{nfe_id}")
+
 @app.get("/dev/bling-token")
 async def dev_bling_token(secret: str = "", db: Session = Depends(get_db)):
     if secret != "modexa-dev-2026":
