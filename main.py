@@ -281,7 +281,28 @@ def _setup_inicial():
         db.close()
     Path("uploads").mkdir(exist_ok=True)
 
-app = FastAPI(title="Sistema Greco", lifespan=lifespan)
+# Sem /docs, /redoc e /openapi.json: eram o mapa das 39 rotas, aberto na internet.
+app = FastAPI(title="Sistema Greco", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
+
+
+# PORTEIRO DAS ROTAS DO BLING (02/10/2026). Ate aqui /api/bling/* respondia a
+# qualquer um, sem login: a base inteira de clientes com nome, CPF e celular,
+# as vendas, e a consulta de aniversario por telefone. Agora exige o header
+# X-Api-Key igual a GRECO_API_KEY. Sem a variavel configurada, RECUSA tudo —
+# errar para o lado fechado. Quem usa: o importador do Modexa e o CRM
+# (aniversario), os dois com a mesma chave.
+import hmac as _hmac
+
+
+@app.middleware("http")
+async def _exigir_chave_bling(request: Request, call_next):
+    if request.url.path.startswith("/api/bling"):
+        esperada = os.getenv("GRECO_API_KEY", "")
+        recebida = request.headers.get("X-Api-Key", "")
+        if not esperada or not _hmac.compare_digest(recebida.encode(), esperada.encode()):
+            return JSONResponse({"detail": "Nao autorizado"}, status_code=401)
+    return await call_next(request)
 
 # Permite a tela de cadastro de produto rodar dentro do CRM atendimento-whatsapp
 # (Modexa) chamando esse backend direto do navegador.
@@ -525,7 +546,7 @@ async def reset_vendas(request: Request, db: Session = Depends(get_db)):
 
 @app.post("/api/produtos")
 async def receber_produto_n8n(request: Request, db: Session = Depends(get_db)):
-    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+    if not os.getenv("N8N_API_KEY") or not _hmac.compare_digest(request.headers.get("X-API-Key", "").encode(), os.getenv("N8N_API_KEY", "").encode()):
         raise HTTPException(403, "Chave inválida")
     data = await request.json()
     bling_id = str(data.get("bling_produto_id", ""))
@@ -664,7 +685,7 @@ async def api_cadastrar_produto(
 
 @app.post("/api/bling-set-estoque")
 async def bling_set_estoque(request: Request):
-    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+    if not os.getenv("N8N_API_KEY") or not _hmac.compare_digest(request.headers.get("X-API-Key", "").encode(), os.getenv("N8N_API_KEY", "").encode()):
         raise HTTPException(403)
     data = await request.json()
     token = data.get("token", "")
@@ -750,7 +771,7 @@ async def _atualizar_imagens_bling(bling_id: str, urls: list, db: Session):
 
 @app.post("/api/gerar-imagens-modelo")
 async def gerar_imagens_modelo(request: Request, db: Session = Depends(get_db)):
-    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+    if not os.getenv("N8N_API_KEY") or not _hmac.compare_digest(request.headers.get("X-API-Key", "").encode(), os.getenv("N8N_API_KEY", "").encode()):
         raise HTTPException(403)
     data = await request.json()
     bling_id = str(data.get("bling_produto_id", ""))
@@ -1319,7 +1340,7 @@ async def health():
 # atrás da mesma chave dos endpoints de escrita — as rotas abertas de venda
 # ficaram assim por herança, não por decisão.
 async def _bling_leitura(request: Request, db: Session, caminho: str):
-    if request.headers.get("X-API-Key") != os.getenv("N8N_API_KEY", "modexa-n8n-2026"):
+    if not os.getenv("N8N_API_KEY") or not _hmac.compare_digest(request.headers.get("X-API-Key", "").encode(), os.getenv("N8N_API_KEY", "").encode()):
         raise HTTPException(403, "Chave inválida")
     headers = await bling_svc._get_headers(db)
     params = list(request.query_params.multi_items())
