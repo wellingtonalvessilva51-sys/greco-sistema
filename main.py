@@ -421,6 +421,40 @@ async def gerente_dashboard(request: Request, db: Session = Depends(get_db)):
         "lojas": lojas,
     })
 
+@app.get("/imposto", response_class=HTMLResponse)
+async def calculadora_imposto(request: Request, db: Session = Depends(get_db)):
+    """Calculadora do Simples Nacional. Sugere o faturamento a partir das vendas
+    sincronizadas, mas o calculo e todo no navegador e os valores sao editaveis:
+    o sync normal so traz 30 dias, entao os 12 meses podem estar incompletos."""
+    user = get_user(request, db)
+    if not user or not user.is_gerente:
+        return RedirectResponse("/")
+    agora = datetime.now()
+    inicio_mes = agora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    # mesmo dia 1, 12 meses antes
+    ano, mes = inicio_mes.year, inicio_mes.month - 12
+    if mes <= 0:
+        ano, mes = ano - 1, mes + 12
+    inicio_12m = inicio_mes.replace(year=ano, month=mes)
+    vendas = db.query(Venda).filter(Venda.data_venda >= inicio_12m).all()
+
+    def valida(v):
+        sit = (v.situacao or "").lower()
+        return "cancel" not in sit and "devol" not in sit
+
+    fat_mes = sum(v.valor_total for v in vendas if valida(v) and v.data_venda >= inicio_mes)
+    anteriores = [v for v in vendas if valida(v) and v.data_venda < inicio_mes]
+    rbt12 = sum(v.valor_total for v in anteriores)
+    meses_com_venda = len({(v.data_venda.year, v.data_venda.month) for v in anteriores})
+    return templates.TemplateResponse("imposto.html", {
+        "request": request,
+        "user": user,
+        "fat_mes": round(fat_mes, 2),
+        "rbt12": round(rbt12, 2),
+        "meses_com_venda": meses_com_venda,
+        "mes_ref": agora.strftime("%m/%Y"),
+    })
+
 @app.get("/vendedora", response_class=HTMLResponse)
 async def vendedora_dashboard(request: Request, db: Session = Depends(get_db)):
     user = get_user(request, db)
