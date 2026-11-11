@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Imposto (Simples Nacional) - Sistema Greco</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+body{font-family:system-ui,sans-serif;background:#0f0e0c;color:#f0ece3;}
+.header{background:#1a1814;border-bottom:1px solid #2e2b24;padding:16px 24px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;}
+.header h1{color:#c9a84c;font-size:18px;}
+.header-right{display:flex;gap:12px;align-items:center;flex-wrap:wrap;}
+.btn{background:#c9a84c;color:#0f0e0c;border:none;border-radius:8px;padding:8px 16px;font-size:13px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-block;}
+.btn-outline{background:transparent;border:1px solid #2e2b24;color:#f0ece3;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.container{max-width:1000px;margin:0 auto;padding:24px;}
+.page-title{font-size:20px;font-weight:700;color:#c9a84c;margin-bottom:6px;}
+.sub{color:#6b6455;font-size:13px;margin-bottom:20px;line-height:1.5;}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;}
+.card{background:#1a1814;border:1px solid #2e2b24;border-radius:12px;padding:20px;}
+.card h2{font-size:13px;color:#6b6455;text-transform:uppercase;letter-spacing:1px;margin-bottom:14px;}
+label{display:block;font-size:13px;margin:12px 0 6px;}
+label:first-of-type{margin-top:0;}
+input,select{width:100%;background:#0f0e0c;border:1px solid #2e2b24;border-radius:8px;color:#f0ece3;padding:10px 12px;font-size:15px;}
+input:focus,select:focus{outline:none;border-color:#c9a84c;}
+.hint{font-size:11px;color:#6b6455;margin-top:4px;line-height:1.4;}
+.das{font-size:34px;font-weight:800;color:#c9a84c;margin:4px 0 2px;}
+.linha{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2e2b24;font-size:14px;}
+.linha:last-child{border-bottom:none;}
+.linha span:first-child{color:#9a927f;}
+.alerta{border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px;line-height:1.45;}
+.alerta-amarelo{background:rgba(201,168,76,.12);border:1px solid rgba(201,168,76,.4);color:#e6cf8a;}
+.alerta-vermelho{background:rgba(224,92,92,.12);border:1px solid rgba(224,92,92,.45);color:#f0a0a0;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th,td{text-align:right;padding:7px 6px;border-bottom:1px solid #2e2b24;}
+th:first-child,td:first-child{text-align:left;}
+th{color:#6b6455;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.5px;}
+tr.atual td{color:#c9a84c;font-weight:700;}
+.oculto{display:none;}
+@media(max-width:768px){.grid-2{grid-template-columns:1fr;}.container{padding:16px;}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🏪 Sistema Greco</h1>
+  <div class="header-right">
+    <span style="color:#6b6455;font-size:13px;">Olá, {{ user.nome }}</span>
+    <a href="/gerente" class="btn btn-outline btn-sm">← Dashboard</a>
+    <a href="/logout" class="btn btn-outline btn-sm">Sair</a>
+  </div>
+</div>
+
+<div class="container">
+  <div class="page-title">🧾 Calculadora do Simples Nacional</div>
+  <div class="sub">Estimativa do DAS do mês com as tabelas da LC 123/2006 (redação da LC 155/2016).
+    Serve para planejar o caixa — o valor oficial é o do PGDAS-D; confira com o contador.</div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Dados</h2>
+
+      <label for="anexo">Atividade</label>
+      <select id="anexo">
+        <option value="I" selected>Anexo I — Comércio (loja)</option>
+        <option value="II">Anexo II — Indústria</option>
+        <option value="III">Anexo III — Serviços</option>
+        <option value="IV">Anexo IV — Serviços (limpeza, obras, advocacia…)</option>
+        <option value="V">Anexo V — Serviços</option>
+        <option value="R">Serviços com Fator R (Anexo III ou V)</option>
+      </select>
+
+      <label for="fatMes">Faturamento do mês {{ mes_ref }}</label>
+      <input id="fatMes" inputmode="decimal" value="{{ '%.2f'|format(fat_mes)|replace('.', ',') }}">
+      <div class="hint">Sugerido pelas vendas sincronizadas do Bling neste mês (sem canceladas/devolvidas). Pode editar para simular.</div>
+
+      <label for="rbt12">Faturamento dos 12 meses anteriores (RBT12)</label>
+      <input id="rbt12" inputmode="decimal" value="{{ '%.2f'|format(rbt12)|replace('.', ',') }}">
+      <div class="hint">Soma das vendas dos 12 meses <b>antes</b> do mês de apuração.
+        {% if meses_com_venda < 12 %}<br><span style="color:#e6cf8a;">⚠ Só há vendas sincronizadas em {{ meses_com_venda }} dos 12 meses — o valor sugerido provavelmente está incompleto. Use o número do contador/PGDAS.</span>{% endif %}
+      </div>
+
+      <div id="boxFolha" class="oculto">
+        <label for="folha12">Folha de salários dos últimos 12 meses</label>
+        <input id="folha12" inputmode="decimal" value="0">
+        <div class="hint">Salários, pró-labore e encargos (INSS patronal, FGTS). Se folha ÷ RBT12 ≥ 28%, tributa no Anexo III; senão, no V.</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Resultado</h2>
+      <div style="font-size:13px;color:#9a927f;">DAS estimado do mês</div>
+      <div class="das" id="rDas">R$ 0,00</div>
+      <div style="margin-top:10px;">
+        <div class="linha"><span>Anexo aplicado</span><span id="rAnexo">—</span></div>
+        <div class="linha"><span>Faixa</span><span id="rFaixa">—</span></div>
+        <div class="linha"><span>Alíquota nominal</span><span id="rNominal">—</span></div>
+        <div class="linha"><span>Parcela a deduzir</span><span id="rDeduzir">—</span></div>
+        <div class="linha"><span>Alíquota efetiva</span><span id="rEfetiva">—</span></div>
+        <div class="linha oculto" id="linhaFatorR"><span>Fator R</span><span id="rFatorR">—</span></div>
+        <div class="linha"><span>Sobra p/ próxima faixa (RBT12)</span><span id="rProxima">—</span></div>
+      </div>
+      <div id="alertas"></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card" id="cardReparticao">
+      <h2>Para onde vai o DAS</h2>
+      <table>
+        <thead><tr><th>Tributo</th><th>%</th><th>Valor</th></tr></thead>
+        <tbody id="tbReparticao"></tbody>
+      </table>
+      <div class="hint" style="margin-top:8px;">Repartição oficial do Anexo I para a faixa atual.</div>
+    </div>
+
+    <div class="card">
+      <h2>Tabela do <span id="tituloTabela">Anexo I</span></h2>
+      <table>
+        <thead><tr><th>Faixa (RBT12)</th><th>Alíquota</th><th>Deduzir</th></tr></thead>
+        <tbody id="tbFaixas"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Como é calculado</h2>
+    <div style="font-size:13px;line-height:1.7;color:#c9c2b0;">
+      1. Acha a faixa pelo RBT12 (faturamento dos 12 meses anteriores).<br>
+      2. Alíquota efetiva = (RBT12 × alíquota nominal − parcela a deduzir) ÷ RBT12.<br>
+      3. DAS = faturamento do mês × alíquota efetiva.<br>
+      Empresa com menos de 12 meses: usa a média mensal dos meses existentes × 12. No 1º mês, faturamento do mês × 12.
+    </div>
+  </div>
+</div>
+
+<script>
+// [limite superior da faixa, alíquota nominal %, parcela a deduzir R$]
+const TABELAS = {
+  I:   [[180000,4.0,0],[360000,7.3,5940],[720000,9.5,13860],[1800000,10.7,22500],[3600000,14.3,87300],[4800000,19.0,378000]],
+  II:  [[180000,4.5,0],[360000,7.8,5940],[720000,10.0,13860],[1800000,11.2,22500],[3600000,14.7,85500],[4800000,30.0,720000]],
+  III: [[180000,6.0,0],[360000,11.2,9360],[720000,13.5,17640],[1800000,16.0,35640],[3600000,21.0,125640],[4800000,33.0,648000]],
+  IV:  [[180000,4.5,0],[360000,9.0,8100],[720000,10.2,12420],[1800000,14.0,39780],[3600000,22.0,183780],[4800000,33.0,828000]],
+  V:   [[180000,15.5,0],[360000,18.0,4500],[720000,19.5,9900],[1800000,20.5,17100],[3600000,23.0,62100],[4800000,30.5,540000]],
+};
+// Repartição do Anexo I por faixa: IRPJ, CSLL, Cofins, PIS, CPP, ICMS (%)
+const TRIBUTOS_I = ["IRPJ","CSLL","Cofins","PIS/Pasep","CPP (INSS)","ICMS"];
+const REPARTICAO_I = [
+  [5.5,3.5,12.74,2.76,41.5,34.0],
+  [5.5,3.5,12.74,2.76,41.5,34.0],
+  [5.5,3.5,12.74,2.76,42.0,33.5],
+  [5.5,3.5,12.74,2.76,42.0,33.5],
+  [5.5,3.5,12.74,2.76,42.0,33.5],
+  [13.5,10.0,28.27,6.13,42.1,0.0],
+];
+const LIMITE = 4800000, SUBLIMITE = 3600000;
+
+const $ = id => document.getElementById(id);
+const brl = v => v.toLocaleString("pt-BR",{style:"currency",currency:"BRL"});
+const pct = (v,d=2) => v.toLocaleString("pt-BR",{minimumFractionDigits:d,maximumFractionDigits:d}) + "%";
+
+// Aceita "12.345,67", "12345.67", "R$ 12.345" etc.
+function num(txt){
+  let s = String(txt||"").replace(/[R$\s]/g,"");
+  if (s.includes(",")) s = s.replace(/\./g,"").replace(",",".");
+  const n = parseFloat(s);
+  return isFinite(n) && n > 0 ? n : 0;
+}
+
+function alerta(cls, txt){ return `<div class="alerta ${cls}">${txt}</div>`; }
+
+function calcular(){
+  const escolha = $("anexo").value;
+  const fatMes = num($("fatMes").value);
+  const rbt12Inf = num($("rbt12").value);
+  const folha = num($("folha12").value);
+  let avisos = "";
+
+  $("boxFolha").classList.toggle("oculto", escolha !== "R");
+
+  // Início de atividade: sem histórico, projeta o próprio mês × 12
+  let rbt12 = rbt12Inf;
+  if (rbt12 === 0 && fatMes > 0){
+    rbt12 = fatMes * 12;
+    avisos += alerta("alerta-amarelo","Sem RBT12: considerei início de atividade (faturamento do mês × 12 = " + brl(rbt12) + ").");
+  }
+
+  let anexo = escolha;
+  let fatorR = null;
+  if (escolha === "R"){
+    fatorR = rbt12 > 0 ? folha / rbt12 * 100 : 0;
+    anexo = fatorR >= 28 ? "III" : "V";
+  }
+  $("linhaFatorR").classList.toggle("oculto", fatorR === null);
+  if (fatorR !== null) $("rFatorR").textContent = pct(fatorR) + (fatorR >= 28 ? " (≥ 28%)" : " (< 28%)");
+
+  const tabela = TABELAS[anexo];
+  let idx = tabela.findIndex(f => rbt12 <= f[0]);
+  if (idx === -1) idx = tabela.length - 1;
+  const [teto, nominal, deduzir] = tabela[idx];
+
+  const efetiva = rbt12 > 0 ? (rbt12 * nominal/100 - deduzir) / rbt12 * 100 : nominal;
+  const das = fatMes * efetiva / 100;
+
+  $("rDas").textContent = brl(das);
+  $("rAnexo").textContent = "Anexo " + anexo;
+  $("rFaixa").textContent = (idx+1) + "ª (até " + brl(teto) + ")";
+  $("rNominal").textContent = pct(nominal,1);
+  $("rDeduzir").textContent = brl(deduzir);
+  $("rEfetiva").textContent = pct(efetiva);
+  $("rProxima").textContent = idx < tabela.length - 1 ? brl(Math.max(teto - rbt12, 0)) : "última faixa";
+
+  if (rbt12 > LIMITE){
+    avisos += alerta("alerta-vermelho","RBT12 acima de R$ 4,8 milhões: ultrapassa o teto do Simples. A empresa é desenquadrada — fale com o contador.");
+  } else if (rbt12 > SUBLIMITE){
+    avisos += alerta("alerta-vermelho","RBT12 acima do sublimite de R$ 3,6 milhões: o ICMS" + (anexo==="I"||anexo==="II" ? "" : "/ISS") + " sai do DAS e passa a ser pago à parte, pelas regras normais do estado" + (anexo==="I"||anexo==="II" ? "" : "/município") + ". Este valor NÃO inclui esse imposto.");
+  } else if (idx < tabela.length - 1 && teto - rbt12 < teto * 0.1){
+    avisos += alerta("alerta-amarelo","Perto de mudar de faixa: a alíquota efetiva vai subir quando o RBT12 passar de " + brl(teto) + ".");
+  }
+  if (rbt12Inf > 0 && fatMes * 12 > rbt12Inf * 1.2){
+    avisos += alerta("alerta-amarelo","O mês está bem acima da média dos últimos 12 — confira se o RBT12 está completo.");
+  }
+  $("alertas").innerHTML = avisos;
+
+  // Repartição (só Anexo I)
+  const mostraRep = anexo === "I";
+  $("cardReparticao").classList.toggle("oculto", !mostraRep);
+  if (mostraRep){
+    $("tbReparticao").innerHTML = REPARTICAO_I[idx].map((p,i) =>
+      `<tr><td>${TRIBUTOS_I[i]}</td><td>${pct(p)}</td><td>${brl(das*p/100)}</td></tr>`).join("") +
+      `<tr class="atual"><td>Total</td><td>100%</td><td>${brl(das)}</td></tr>`;
+  }
+
+  $("tituloTabela").textContent = "Anexo " + anexo;
+  let piso = 0;
+  $("tbFaixas").innerHTML = tabela.map((f,i) => {
+    const linha = `<tr class="${i===idx?'atual':''}"><td>${i+1}ª · ${brl(piso+ (i?0.01:0))} a ${brl(f[0])}</td><td>${pct(f[1],1)}</td><td>${brl(f[2])}</td></tr>`;
+    piso = f[0];
+    return linha;
+  }).join("");
+}
+
+["anexo","fatMes","rbt12","folha12"].forEach(id => $(id).addEventListener("input", calcular));
+calcular();
+</script>
+</body>
+</html>
